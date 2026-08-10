@@ -1,0 +1,79 @@
+{
+  "version": 1,
+  "presetId": "sanne.standard",
+  "paused": false,
+  "magicMouseTaps": {
+    "enabled": true,
+    "leftTap": true,
+    "rightTap": true,
+    "middleTwoFinger": true,
+    "middleThreeFinger": true,
+    "tapDrag": true,
+    "multiClick": true,
+    "twoFingerDoubleTapMissionControl": true,
+    "twoFingerSwipeUpMissionControl": true,
+    "twoFingerSwipeDownAppExpose": true,
+    "twoFingerSwipeSpaces": false,
+    "threeFingerSwipes": false,
+    "twoFingerTopEdgeMove": true,
+    "oneFingerSwipePages": true,
+    "leftRightSplit": 0.5,
+    "deadZone": 0.08,
+    "sensitivity": 0
+  },
+  "titlebarGestures": {
+    "enabled": true,
+    "swipeHalves": true,
+    "swipeQuarters": true,
+    "swipeThirds": true,
+    "swipeMaximize": true,
+    "swipeMinimize": true,
+    "pinchClose": true,
+    "pinchFullscreen": true,
+    "threeFingerMoveDisplay": true
+  },
+  "dockGestures": {
+    "enabled": true,
+    "swipeActivate": true,
+    "swipeHide": true,
+    "pinchNewWindow": true,
+    "pinchQuit": false
+  },
+  "menubarGestures": {
+    "enabled": true,
+    "swipeCycleWindows": true,
+    "swipeHideOthers": true,
+    "swipeUnminimize": true
+  },
+  "trackpad": {
+    "threeFingerTapMiddleClick": true,
+    "threeFingerDrag": true,
+    "threeFingerSwipes": false,
+    "fourFingerSwipes": false,
+    "fourFingerTap": false,
+    "tipTap": false,
+    "sensitivity": 0
+  },
+  "customActions": [],
+  "window": {
+    "gap": 0,
+    "showPreview": true,
+    "haptics": true
+  },
+  "keyboard": {
+    "enabled": true,
+    "snapWithArrows": true,
+    "cycleThirds": true,
+    "moveToAdjacentDisplay": true
+  },
+  "modifierDrag": {
+    "enabled": true,
+    "moveEnabled": true,
+    "resizeEnabled": true,
+    "moveModifiers": ["option", "command"],
+    "resizeModifiers": ["control", "command"]
+  },
+  "appOverrides": [],
+  "gestureOverrides": {},
+  "launchAtLogin": false
+}

@@ -1,0 +1,35 @@
+# Xcode / Swift
+.DS_Store
+.build/
+.swiftpm/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+DerivedData/
+xcuserdata/
+*.moved-aside
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Secrets / signing
+*.p12
+*.cer
+*.mobileprovision
+AuthKey_*.p8
+.env
+.env.*
+
+# Firecrawl / local scratch
+.firecrawl/
+
+# Packaged app
+dist/
