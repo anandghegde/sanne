@@ -2,10 +2,9 @@
 
 **Plan:** [.junie/plans/btt-multitouch-parity-features.md](./.junie/plans/btt-multitouch-parity-features.md)
 **Last updated:** 2026-08-10
-**Where we are:** Plan code path complete through release prep for **0.2.0**. Hardware QA
-(step 9) was **skipped by choice** — new gestures remain unexercised on real devices.
-**Next step (optional):** [Step 9 — hardware QA](#step-9--hardware-qa-sweep) when convenient;
-GitHub Release publish when the repo is public.
+**Where we are:** Plan complete through **0.2.0 GitHub Release** (tag `v0.2.0` published). Hardware
+QA (step 9) was **skipped by choice** — new gestures remain unexercised on real devices.
+**Next step (optional):** [Step 9 — hardware QA](#step-9--hardware-qa-sweep) when convenient.
 
 This file tracks *execution of one plan*, step by step, so work can stop and resume without losing
 the thread. Four documents describe this work; keeping them from drifting into duplicates means
@@ -421,7 +420,7 @@ and launch-at-login both depend on the bundle.
 4. ✅ Notarize + staple via `sanne-notary` (`Accepted`; ticket stapled on DMG and `.app`)
 5. ✅ Packaging fix: resource bundle is `Sanne_SanneKit.bundle` (not the stale `Sanne_Sanne.bundle`)
 6. ⬜ Hardware rows in [PROGRESS.md](./PROGRESS.md) stay 🟡 — not flipped to ✅ without device QA
-7. ⬜ GitHub Release / git tag `v0.2.0` — publish when ready (`docs/RELEASING.md`)
+7. ✅ GitHub Release + tag `v0.2.0` — https://github.com/anandghegde/sanne/releases/tag/v0.2.0
 
 Still outside this plan: app icon set, optional Sparkle, Homebrew cask.
 
