@@ -59,11 +59,14 @@ mkdir -p "$MACOS" "$RES"
 cp "$BIN" "$MACOS/Sanne"
 chmod +x "$MACOS/Sanne"
 
-# SPM resource bundle (preset JSON, etc.)
+# SPM resource bundle (preset JSON, etc.). Package name + library target → Sanne_SanneKit.bundle.
+# Prefer that over any stale Sanne_Sanne.bundle left from when the executable owned the resources.
 BUNDLE_SRC=""
 for candidate in \
-  "$ROOT/.build/$CONFIG/Sanne_Sanne.bundle" \
-  "$ROOT/.build"/*/"$CONFIG/Sanne_Sanne.bundle"
+  "$ROOT/.build/$CONFIG/Sanne_SanneKit.bundle" \
+  "$ROOT/.build"/*/"$CONFIG/Sanne_SanneKit.bundle" \
+  "$ROOT/.build/$CONFIG/SanneKit_SanneKit.bundle" \
+  "$ROOT/.build"/*/"$CONFIG/SanneKit_SanneKit.bundle"
 do
   if [[ -d "$candidate" ]]; then
     BUNDLE_SRC="$candidate"
@@ -71,10 +74,12 @@ do
   fi
 done
 if [[ -n "$BUNDLE_SRC" ]]; then
+  # Data-only SPM resource bundle → Contents/Resources. Do not put it under MacOS/
+  # (codesign --deep treats that as nested code and rejects bundles without an Info.plist).
   cp -R "$BUNDLE_SRC" "$RES/"
   echo "→ copied resource bundle from $BUNDLE_SRC"
 else
-  echo "warn: Sanne_Sanne.bundle not found — preset JSON may be missing" >&2
+  echo "warn: Sanne_SanneKit.bundle not found — preset JSON may be missing" >&2
 fi
 
 # Minimal DMG-friendly README inside Resources (also useful for support).

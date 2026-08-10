@@ -7,6 +7,21 @@ Versioning follows [SemVer](https://semver.org/) once public releases begin.
 
 ## [Unreleased]
 
+### Planned
+
+- Notarized GitHub Releases workflow (credentials + CI)
+- App icon + menu bar template images
+- Homebrew cask
+- Optional Sparkle auto-update
+
+---
+
+## [0.2.0] — 2026-08-10
+
+BTT / Multitouch parity slice: free-space trackpad chords, tip-tap, Magic Mouse 3-finger swipes,
+custom scripts, per-app gesture bindings, and an action HUD. New *gestures* ship **off** by default
+so existing configs keep the same behaviour until you opt in.
+
 ### Added
 
 - **Free-space trackpad swipes** — 3-finger and 4-finger swipes L/R/U/D anywhere on the trackpad, plus a 4-finger tap, all remappable to any catalog action. Off by default: macOS consumes these for Mission Control / Spaces and registering multitouch does not suppress the system gesture, so turn the matching macOS gestures off first (Settings → Trackpad says so inline). Where 3-finger drag is also on, drag wins once it commits — a stuck mouse button is worse than a missed swipe
@@ -17,6 +32,7 @@ Versioning follows [SemVer](https://semver.org/) once public releases begin.
 - **Action name overlay (HUD)** — a brief label near the bottom of the screen naming the action a gesture just fired, so remapped and off-screen effects are no longer guesswork. Skipped for plain clicks and continuous drags, follows the display your cursor is on, and never takes focus from the app you are working in. Toggle in Settings → Home
 - **Illustrated gesture diagrams** — every gesture row in Settings, the Gestures editor, and the Cheat Sheet now shows a small drawn tile of the device (trackpad / Magic Mouse) with finger dots, motion arrows, pinch marks, and 2× tap badges, so you can see at a glance what e.g. a "3-finger drag" looks like (inspired by BetterTouchTool/Multitouch). Zones (title bar, menu bar, Dock, mouse top edge) are highlighted on the device, and left/right mouse taps show a split line
 - **System Settings-style sidebar** — tinted, filled icon tiles per section
+- **`SanneTests` pure-logic suite** — BindingResolver precedence, config decode tolerance / round-trip, TipTapRecognizer state machine, free-zone finger-count lock, ActionCatalog HUD allow-list (35 tests)
 
 ### Fixed
 
@@ -26,13 +42,23 @@ Versioning follows [SemVer](https://semver.org/) once public releases begin.
   - A lift rejected by the scroll lock now re-arms the lock (+0.40s), so chains of residual contacts stay suppressed
   - New minimum tap duration (25–45ms, scales with sensitivity) rejects sub-frame grazes
   - Contact size (MT `size`) is now tracked and logged; contacts that never exceed size 0.08 are rejected as grazes
+- **Deleting a custom script left per-app remaps dangling** — `removeCustomAction` now clears matching entries in both global and per-app override maps
 
-### Planned
+### Known limitations
 
-- Notarized GitHub Releases workflow (credentials + CI)
-- App icon + menu bar template images
-- Homebrew cask
-- Optional Sparkle auto-update
+- New free-space / tip-tap / Magic Mouse 3F gestures still need a broader hardware QA pass on real devices (unit tests cover pure logic only)
+- Not notarized by default unless this build was notarized with Developer ID credentials
+- No custom app icon yet
+- Freeform keystroke labels use US key map for display
+
+### Install
+
+```bash
+./scripts/package-dmg.sh
+open dist/Sanne-0.2.0.dmg
+```
+
+Then grant **Accessibility** to Sanne.
 
 ---
 
@@ -71,5 +97,6 @@ open dist/Sanne-0.1.0.dmg
 
 Then grant **Accessibility** to Sanne.
 
-[Unreleased]: https://github.com/sanne-app/sanne/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/sanne-app/sanne/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/sanne-app/sanne/releases/tag/v0.2.0
 [0.1.0]: https://github.com/sanne-app/sanne/releases/tag/v0.1.0

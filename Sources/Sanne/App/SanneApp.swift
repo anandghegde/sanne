@@ -1,9 +1,11 @@
 import AppKit
 import SwiftUI
 
-@main
-struct SanneAppEntry {
-    static func main() {
+/// Process entry point. Lives in the library so the thin `Sanne` executable and any future
+/// harness can boot the same way; `@main` sits on the executable target only.
+public enum SanneAppEntry {
+    @MainActor
+    public static func main() {
         let app = NSApplication.shared
         let delegate = AppDelegate()
         app.delegate = delegate

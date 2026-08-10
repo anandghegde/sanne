@@ -58,9 +58,9 @@ Goal: prove hard APIs; no separate throwaway spike (lives in **Sanne** itself).
 | Menu bar agent | ✅ | |
 | Pause / Resume | ✅ | Menu + settings |
 | Accessibility onboarding | ✅ | |
-| About + version string | 🟡 | About exists; version still informal `0.1.0` |
+| About + version string | ✅ | `VERSION` / About show **0.2.0** |
 | Launch at login | 🟡 | `SMAppService` + Settings toggle; needs **Sanne.app** (not raw binary) |
-| Notarized builds for testers | 🟡 | DMG via `package-dmg.sh`; `notarize.sh` ready (needs Developer ID creds) |
+| Notarized builds for testers | ✅ | **0.2.0** Developer ID + notarized/stapled DMG (`dist/Sanne-0.2.0.dmg`) |
 
 ### B. Magic Mouse taps
 
@@ -189,9 +189,9 @@ Goal: prove hard APIs; no separate throwaway spike (lives in **Sanne** itself).
 19. **QA per-app gesture bindings** — Settings → Apps → app row → **Gesture bindings**; bind one gesture to different actions in two apps. *Pass:* the frontmost app's action fires and the other app is unaffected; deleting an app's pause row keeps its bindings, which then show under **"Gesture bindings only"**; a binding for an uninstalled app still lists (name falls back to the bundle id) with no crash; deleting a custom action a binding uses shows **"Missing action"** and the gesture does nothing  
 20. **QA action HUD** — Settings → Home → **Action name overlay**. *Pass:* appears for remapped gestures but never for plain clicks, 3-finger drag or continuous window move; lands near the bottom of the display **under the cursor** (verify on a secondary display); two gestures ~0.6 s apart snap it back to full opacity instead of continuing to fade; it **never steals focus** — type into a text field while firing HUD gestures and confirm no keystrokes are lost; toggling it off silences it entirely  
 21. **QA config round-trip** — Settings → Home → export, then import into a fresh config. *Pass:* `customActions`, `appGestureOverrides`, `hud` and the new slot overrides all survive; a pre-change `config.json` still loads with every new field at its default  
-22. Next code: **`SanneTests` target** — `Package.swift` still has only the executable, so the pure-logic tests the plan called for (BindingResolver precedence, config decode tolerance / round-trip, TipTapRecognizer state machine, free-zone finger-count outcomes) are still missing; then app icon set; public GitHub Release (when ready); optional Sparkle; Homebrew cask
+22. Next: **hardware QA items 14–21** (skipped for the 0.2.0 cut — still recommended before wide distribution). Pure-logic tests green (`SanneTests`, 35). Outside this plan: app icon set; public GitHub Release `v0.2.0` when ready; optional Sparkle; Homebrew cask
 
-Items 14–21 above are the hardware QA sweep for the BTT/Multitouch parity work; [PLAN_PROGRESS.md](./PLAN_PROGRESS.md) tracks that plan's remaining steps (code review, test target, QA, release prep) in order.
+Items 14–21 above are the hardware QA sweep for the BTT/Multitouch parity work; [PLAN_PROGRESS.md](./PLAN_PROGRESS.md) tracks that plan — **0.2.0 release prep done**; hardware QA optional.
 
 ---
 
@@ -226,6 +226,8 @@ Items 14–21 above are the hardware QA sweep for the BTT/Multitouch parity work
 | 2026-08-09 | Per-app gesture bindings: `appGestureOverrides`, resolver precedence app → global → Standard, app-scoped Gestures editor from Settings → Apps, orphaned bindings surfaced so nothing configured goes invisible |
 | 2026-08-09 | Action HUD overlay: `HUDController` non-activating panel, `ActionCatalog.announcesInHUD` allow-list (skips clicks + continuous drags), toggle at Settings → Home |
 | 2026-08-10 | `PLAN_PROGRESS.md`: step-by-step tracker for the BTT/Multitouch parity plan — per-step delivery detail, what is proven vs merely compiling, and the remaining steps (code review, `SanneTests` target, hardware QA, config round-trip, release prep) |
+| 2026-08-10 | Steps 7–8 + automated step 10: code review of free-space / MM 3F / scripts / resolver / HUD; fix `removeCustomAction` to clear per-app remaps; package split (`SanneKit` library + thin `Sanne` executable); `SanneTests` with 35 pure-logic tests green |
+| 2026-08-10 | **0.2.0 release prep** (hardware QA skipped): VERSION + CHANGELOG + `docs/releases/0.2.0.md`; Developer ID DMG + notarize |
 
 ---
 

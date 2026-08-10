@@ -2,9 +2,10 @@
 
 **Plan:** [.junie/plans/btt-multitouch-parity-features.md](./.junie/plans/btt-multitouch-parity-features.md)
 **Last updated:** 2026-08-10
-**Where we are:** Steps 1–6 are **code complete and build clean**. Nothing in this plan has been
-exercised on hardware yet, and the test target the plan called for was never created.
-**Next step:** [Step 7 — code review](#step-7--code-review-of-steps-16).
+**Where we are:** Plan code path complete through release prep for **0.2.0**. Hardware QA
+(step 9) was **skipped by choice** — new gestures remain unexercised on real devices.
+**Next step (optional):** [Step 9 — hardware QA](#step-9--hardware-qa-sweep) when convenient;
+GitHub Release publish when the repo is public.
 
 This file tracks *execution of one plan*, step by step, so work can stop and resume without losing
 the thread. Four documents describe this work; keeping them from drifting into duplicates means
@@ -41,25 +42,26 @@ has earned a ✅ in that column.
 
 | Step | Feature | Code | Docs | Tests | Hardware QA | On by default? |
 |------|---------|------|------|-------|-------------|----------------|
-| [1](#step-1--free-space-3f4f-swipes--4f-tap) | Free-space trackpad 3F/4F swipes + 4F tap | ✅ | ✅ | 🔴 | 🔴 PROGRESS 14, 15 | No — macOS claims the chords |
-| [2](#step-2--tip-tap) | Tip-tap left / right | ✅ | ✅ | 🔴 | 🔴 PROGRESS 16 | No — shares the pad with scrolling |
-| [3](#step-3--magic-mouse-3-finger-swipes) | Magic Mouse 3-finger swipes | ✅ | ✅ | 🔴 | 🔴 PROGRESS 17 | No — easy to hit while gripping |
-| [4](#step-4--custom-script-actions) | Shell / AppleScript / Shortcuts actions | ✅ | ✅ | 🔴 | 🔴 PROGRESS 18 | n/a — inert until you add one |
-| [5](#step-5--per-app-gesture-bindings) | Per-app gesture bindings | ✅ | ✅ | 🔴 | 🔴 PROGRESS 19 | n/a — inert until you bind one |
-| [6](#step-6--action-hud-overlay--docs) | Action HUD overlay + doc updates | ✅ | ✅ | 🔴 | 🔴 PROGRESS 20, 21 | **Yes** — `hud.enabled` |
-| [7](#step-7--code-review-of-steps-16) | Code review of steps 1–6 | ⬜ | — | — | — | — |
-| [8](#step-8--sannetests-target) | `SanneTests` target + pure-logic tests | ⬜ | — | — | — | — |
-| [9](#step-9--hardware-qa-sweep) | Hardware QA sweep | ⬜ | — | — | — | — |
-| [10](#step-10--config-round-trip-verification) | Config round-trip verification | ⬜ | — | — | — | — |
-| [11](#step-11--release-prep) | Release prep | ⬜ | — | — | — | — |
+| [1](#step-1--free-space-3f4f-swipes--4f-tap) | Free-space trackpad 3F/4F swipes + 4F tap | ✅ | ✅ | ✅ | 🔴 PROGRESS 14, 15 | No — macOS claims the chords |
+| [2](#step-2--tip-tap) | Tip-tap left / right | ✅ | ✅ | ✅ | 🔴 PROGRESS 16 | No — shares the pad with scrolling |
+| [3](#step-3--magic-mouse-3-finger-swipes) | Magic Mouse 3-finger swipes | ✅ | ✅ | 🟡 pure logic only | 🔴 PROGRESS 17 | No — easy to hit while gripping |
+| [4](#step-4--custom-script-actions) | Shell / AppleScript / Shortcuts actions | ✅ | ✅ | ✅ id/catalog | 🔴 PROGRESS 18 | n/a — inert until you add one |
+| [5](#step-5--per-app-gesture-bindings) | Per-app gesture bindings | ✅ | ✅ | ✅ | 🔴 PROGRESS 19 | n/a — inert until you bind one |
+| [6](#step-6--action-hud-overlay--docs) | Action HUD overlay + doc updates | ✅ | ✅ | ✅ allow-list | 🔴 PROGRESS 20, 21 | **Yes** — `hud.enabled` |
+| [7](#step-7--code-review-of-steps-16) | Code review of steps 1–6 | ✅ | ✅ | — | — | — |
+| [8](#step-8--sannetests-target) | `SanneTests` target + pure-logic tests | ✅ | ✅ | ✅ 35 tests | — | — |
+| [9](#step-9--hardware-qa-sweep) | Hardware QA sweep | ⬜ | — | — | ⬜ **skipped** | — |
+| [10](#step-10--config-round-trip-verification) | Config round-trip verification | ✅ unit | 🟡 UI still owed | ✅ | 🔴 PROGRESS 21 UI path | — |
+| [11](#step-11--release-prep) | Release prep → **0.2.0** | ✅ | ✅ | — | — | — |
 
-**Build gate (re-run after any change):**
+**Build / test gate (re-run after any change):**
 
 ```bash
 swift build     # must succeed with zero warnings
+swift test      # must be 35/35 green
 ```
 
-Currently: **passing, zero warnings.**
+Currently: **both passing, zero warnings.**
 
 ---
 
@@ -89,8 +91,7 @@ mouse button is a worse failure than a missed swipe. Finger count is locked to t
 registering for multitouch does **not** suppress the system gesture. Users must turn the matching
 System Settings gestures off first; Settings says so inline.
 
-**Owed:** the plan asked this step to create the `SanneTests` target with free-zone finger-count and
-config-decode-tolerance tests. It did not. → [Step 8](#step-8--sannetests-target).
+**Tests:** free-zone finger-count + slot mapping in `SwipePinchRecognizerTests` ([Step 8](#step-8--sannetests-target)).
 **Owed:** hardware QA → [PROGRESS.md](./PROGRESS.md) items 14–15.
 
 ---
@@ -113,8 +114,9 @@ separate remappable gestures.
 cancels the gesture, so two-finger scrolling and dragging keep working untouched. It is also mutually
 exclusive with 3F drag and the free-space swipes.
 
-**Owed:** state-machine tests (anchor-drift cancel, tap timeout, side detection) →
-[Step 8](#step-8--sannetests-target). Hardware QA → [PROGRESS.md](./PROGRESS.md) item 16.
+**Tests:** state machine (side, drift cancel, timeout, separation, 3+ latch) in
+`TipTapRecognizerTests` ([Step 8](#step-8--sannetests-target)).
+**Owed:** hardware QA → [PROGRESS.md](./PROGRESS.md) item 16.
 
 ---
 
@@ -173,8 +175,10 @@ observed `ConfigStore`, not from the catalog's lock-protected mirror, which Swif
 otherwise the list goes stale right after a save or delete. `.script` is filtered out of
 `builtInSections` so the two sources cannot produce duplicate rows.
 
-**Owed:** round-trip and unknown-UUID / missing-`shortcuts`-binary tests →
-[Step 8](#step-8--sannetests-target). Hardware QA → [PROGRESS.md](./PROGRESS.md) item 18.
+**Tests:** custom id round-trip, unknown UUID, limits constants in `ActionCatalogTests`
+([Step 8](#step-8--sannetests-target)). Live timeout / concurrency / missing-binary still
+hardware/integration.
+**Owed:** hardware QA → [PROGRESS.md](./PROGRESS.md) item 18.
 
 ---
 
@@ -210,9 +214,9 @@ compatibility is the default rather than an afterthought.
 **Nothing configured can go invisible:** removing an app's *pause* row no longer discards its
 bindings. They stay listed under `Section("Gesture bindings only")` in Settings → Apps.
 
-**Owed:** the resolver precedence matrix (app/global/default × enabled/disabled) and nil-bundle-id
-backward-compatibility tests → [Step 8](#step-8--sannetests-target). Hardware QA →
-[PROGRESS.md](./PROGRESS.md) item 19.
+**Tests:** precedence matrix, master switch, nil bundle id, pruning in `BindingResolverTests`
+([Step 8](#step-8--sannetests-target)).
+**Owed:** hardware QA → [PROGRESS.md](./PROGRESS.md) item 19.
 
 ---
 
@@ -252,8 +256,9 @@ extending them later is one line per call site.
 opt-in groups once, and where to enable them), [CHANGELOG.md](./CHANGELOG.md) (six `Added` entries
 under `[Unreleased]`).
 
-**Owed:** hardware QA → [PROGRESS.md](./PROGRESS.md) item 20; config round-trip →
+**Tests:** `announcesInHUD` allow-list in `ActionCatalogTests`. Config unit round-trip →
 [Step 10](#step-10--config-round-trip-verification).
+**Owed:** hardware QA → [PROGRESS.md](./PROGRESS.md) item 20; UI export/import → item 21.
 
 ---
 
@@ -277,10 +282,10 @@ Sources/Sanne/UI/Preferences/OrphanAppGestureRemapsSection.swift    (not in plan
 `UI/Help/GestureCatalog.swift`, `UI/Theme/GestureDiagram.swift`, plus `PROGRESS.md` / `README.md` /
 `CHANGELOG.md`.
 
-**Build facts**, so the "no tests" gap below is independently checkable rather than asserted: 51 Swift
-sources under `Sources/Sanne/`; `Package.swift` declares swift-tools 5.9, `.macOS(.v13)` and **one**
-target — the `Sanne` executable with `.process("Resources")` — and **no test target**; `VERSION` is
-`0.1.0`.
+**Build facts:** 51 Swift sources under `Sources/Sanne/` (library target `SanneKit`); thin executable
+trampoline at `Sources/SanneApp/main.swift`; `Package.swift` declares `SanneKit` + `Sanne` +
+`SanneTests` (swift-tools 5.9, `.macOS(.v13)`); resource bundle is now `SanneKit_SanneKit.bundle`
+(`package-app.sh` updated); `VERSION` is **0.2.0**.
 
 **Every new *gesture* ships off, and every new store ships empty.** All new keys decode via
 `decodeIfPresent` with a default, so an older config is never rejected:
@@ -295,68 +300,102 @@ target — the `Sanne` executable with `.process("Resources")` — and **no test
 
 Pre-existing trackpad behaviour is untouched: `trackpad.threeFingerTapMiddleClick` and
 `.threeFingerDrag` remain **`true`**. A pre-change `config.json` therefore loads with identical
-behaviour — which is asserted nowhere yet, hence [Step 10](#step-10--config-round-trip-verification).
+behaviour — asserted by `ConfigRoundTripTests.testPreChangeConfigLeavesNewFieldsAtDefault`
+([Step 10](#step-10--config-round-trip-verification)).
 
 ### What is actually proven
 
 | Claim | Evidence |
 |-------|----------|
-| Everything compiles, no new warnings | ✅ `swift build` clean. A Swift 6 concurrency warning pair in the HUD fade completion handler was caught here and fixed |
-| Config keys default correctly | ✅ read off the stored properties in `ConfigModels.swift` |
-| Recognizers behave on real fingers | 🔴 **nothing** — no hardware run, no tests |
-| Resolver precedence is correct | 🔴 reasoned only. No test asserts it, and the whole-plan review is still outstanding ([Step 7](#step-7--code-review-of-steps-16)) |
-| Scripts time out / cap concurrency as documented | 🔴 constants read correctly; behaviour unexercised |
-| HUD never steals focus | 🔴 designed for it; unverified on screen |
+| Everything compiles, no new warnings | ✅ `swift build` clean (debug + release) |
+| Unit tests pass | ✅ `swift test` — **35/35** green |
+| Config keys default correctly | ✅ `ConfigRoundTripTests` empty-JSON + legacy-JSON cases |
+| Config full encode→decode equality | ✅ `ConfigRoundTripTests.testFullConfigRoundTrip` |
+| Resolver precedence is correct | ✅ `BindingResolverTests` matrix (app/global/default × enable, master switch, nil bundle id) |
+| `setGestureOverride` pruning | ✅ empty entry / empty app map tests |
+| Tip-tap state machine | ✅ side, drift cancel, timeout, 3+ latch, separation |
+| Free-zone finger-count lock | ✅ 4→3 decay keeps 4F; free ignores 2F swipe/pinch |
+| `announcesInHUD` allow-list | ✅ silent for clicks/drag/move/none; announces everything else |
+| Custom action id round-trip | ✅ `ActionCatalogTests` |
+| Scripts time out / cap concurrency as documented | 🟡 constants asserted; live process path still unexercised |
+| Recognizers behave on real fingers | 🔴 unit tests only — [Step 9](#step-9--hardware-qa-sweep) |
+| HUD never steals focus | 🔴 designed for it (`HUDPanel.canBecomeKey = false`); unverified on screen |
 
 Read that table before trusting anything above it.
 
 ---
 
-## Future steps
+## Completed later steps
 
 ### Step 7 — Code review of steps 1–6
 
-The six steps landed across many sessions and were never reviewed as a whole. Independent of
-[Step 9](#step-9--hardware-qa-sweep), so the two can overlap.
+**Delivered 2026-08-10.** Whole-plan read of free-space arbitration, Magic Mouse 3F split,
+`ActionRunner` script lifecycle, `BindingResolver` layering, and `HUDController` concurrency.
 
-Focus areas:
+| Area | Verdict |
+|------|---------|
+| Free-space arbitration | Sound. Drag commits → `freeDragBegan` blocks swipe; peak fingers sticky for the session; 4F path releases a mid-flight 3F drag with `mouseUp` before resetting. Tip-tap only runs while peak ≤ 2 — structural exclusivity, not threshold luck |
+| `SwipePinchRecognizer` free zone | Sound. Finger count locks after `swipeMin * 0.5` travel; free emits swipe only at ≥ 3 fingers and never pinch; diagonals collapsed to axis |
+| `MagicMouseTapController` 3F | Sound. Travel ≥ `swipeMin` returns before the middle-click branch (including when the 3F-swipe *toggle* is off, so a travelling 3F chord cannot fall through to middle-click or 2F slots). Swipe finger count is frozen early so a shell graze cannot promote 2F → 3F |
+| `ActionRunner` scripts | Sound. Slot acquired *outside* the queue work with non-blocking wait; `defer` releases on every path; SIGTERM then SIGKILL grace; stderr drained while waiting so a chatty script cannot stall the deadline |
+| `BindingResolver` | Sound. Field-wise layering; master switch outranks all three layers; nil `frontmostBundleId` skips the app layer |
+| `HUDController` | Sound. Generation token invalidates in-flight fades; `MainActor.assumeIsolated` in the AppKit completion keeps the guard synchronous; `HUDPanel` refuses key/main |
 
-- **Free-space arbitration** — drag / swipe / tap ordering and the session-peak finger-count lock;
-  hunt for a path that leaks a synthetic mouse-up or double-fires two slots.
-- **`MagicMouseTapController`** — the 3F swipe vs. 3F middle-click split, which is the riskiest edit
-  in the plan because it touches a verified-working path (tap-to-click).
-- **`ActionRunner`** script lifecycle — timeout, kill grace, slot accounting under rapid re-entry, and
-  whether a slot can leak on an early-return path.
-- **`BindingResolver`** layering and the `setGestureOverride` pruning invariant.
-- **`HUDController`** concurrency and panel lifetime.
+**Fix landed from review:**
+
+- `SanneConfig.removeCustomAction` only cleared **global** `gestureOverrides`. A per-app remap to a
+  deleted script would keep resolving as a dangling `action.custom.<uuid>`. Now also walks
+  `appGestureOverrides` and prunes empty app maps (covered by
+  `ConfigRoundTripTests.testRemoveCustomActionClearsGlobalAndAppOverrides`).
+
+No other defects found that were worth changing before hardware QA. Intentional gaps (HUD not wired
+into keyboard snap / modifier-drag; no process-level script integration tests) stay as recorded under
+*Later / optional* and the proven table above.
 
 ### Step 8 — `SanneTests` target
 
-The plan asked steps 1, 2, 4 and 5 to add tests. None exist: `Package.swift` still declares only the
-executable target. This is the last outstanding *code* deliverable of the plan.
+**Delivered 2026-08-10.** SPM cannot `@testable import` an executable, so the package was split:
 
-Add a `SanneTests` target and cover the pure logic only — no hardware, no UI:
+| Target | Path | Role |
+|--------|------|------|
+| `SanneKit` | `Sources/Sanne/` | Library — all app logic + resources |
+| `Sanne` | `Sources/SanneApp/main.swift` | Thin `@main` trampoline → `SanneAppEntry.main()` |
+| `SanneTests` | `Tests/SanneTests/` | `@testable import SanneKit` |
 
-- `BindingResolver` precedence matrix: app / global / default × enabled / disabled; `nil` bundle id
-  reproduces pre-per-app behaviour; a disabled master group beats all three layers.
-- Config decode tolerance and round-trip: a config carrying `customActions`, `appGestureOverrides`,
-  `hud` and new slot overrides encodes → decodes equal; a pre-change JSON leaves every new field at
-  its default.
-- `setGestureOverride` pruning: writing an empty entry removes the slot, and emptying an app removes
-  its whole map.
-- `TipTapRecognizer` state machine fed synthetic `TouchFrame`s: side detection, anchor-drift cancel,
-  tap timeout.
-- `SwipePinchRecognizer` free-zone finger-count outcomes, including the 4→3 finger decay case.
-- `ActionCatalog`: `customActionId` / `parseCustomAction` round-trip, unknown UUID → `nil`,
-  `announcesInHUD` allow-list.
+`scripts/package-app.sh` now looks for `SanneKit_SanneKit.bundle` (with a legacy fallback).
 
-Note the production target is an executable; expect to confirm how the test target imports it before
-writing assertions.
+**35 tests across five files:**
+
+| File | Covers |
+|------|--------|
+| `BindingResolverTests.swift` (11) | Precedence matrix, master switch, nil bundle id, pruning, `isCustomized` scope |
+| `ConfigRoundTripTests.swift` (6) | Empty/legacy decode defaults, full encode↔decode, custom-action tolerance, removeCustomAction, layering |
+| `TipTapRecognizerTests.swift` (6) | Left/right, anchor drift, tap timeout, two-together, 3+ latch, separation |
+| `SwipePinchRecognizerTests.swift` (6) | 3F free swipe, 4→3 decay, free ignores 2F/pinch, titlebar 2F still works, slot mapping |
+| `ActionCatalogTests.swift` (6) | custom id round-trip, unknown UUID, sync lookup, HUD allow-list, `CustomActionLimits` |
+
+Verify: `swift test` → 35 passed, 0 failed.
+
+### Step 10 — Config round-trip verification (automated)
+
+**Unit half delivered with step 8.** `ConfigRoundTripTests` asserts:
+
+1. `{}` and a pre-change JSON leave every new field at its default (opt-in flags `false`,
+   `customActions` / `appGestureOverrides` empty, `hud.enabled == true`).
+2. A config carrying `customActions`, `appGestureOverrides`, `hud`, and new slot overrides
+   encodes → decodes **equal**.
+
+**Still owed on hardware / UI:** Settings → Home → export → import (PROGRESS item 21) — the path
+users actually take. That is part of [Step 9](#step-9--hardware-qa-sweep).
+
+---
+
+## Future steps
 
 ### Step 9 — Hardware QA sweep
 
-Needs a Magic Mouse and a trackpad, ideally with a second display. The checklist already exists with
-explicit pass criteria — work [PROGRESS.md](./PROGRESS.md) **items 14–21** top to bottom:
+**Skipped 2026-08-10** (explicit decision). Checklist still valid for a later pass — work
+[PROGRESS.md](./PROGRESS.md) **items 14–21** top to bottom when a trackpad + Magic Mouse are handy:
 
 | Item | Covers |
 |------|--------|
@@ -367,30 +406,24 @@ explicit pass criteria — work [PROGRESS.md](./PROGRESS.md) **items 14–21** t
 | 18 | script actions: failure, 10 s timeout, concurrency cap, missing `shortcuts` binary |
 | 19 | per-app bindings, orphaned bindings, uninstalled app, missing action |
 | 20 | HUD: placement, mid-fade re-show, **focus theft**, toggle off |
-| 21 | config export / import round-trip |
+| 21 | config export / import round-trip (UI path; unit half already green) |
 
 Run from `dist/Sanne.app` (`./scripts/package-app.sh`), not the raw binary — Accessibility identity
 and launch-at-login both depend on the bundle.
 
-### Step 10 — Config round-trip verification
+### Step 11 — Release prep → 0.2.0
 
-[PROGRESS.md](./PROGRESS.md) item 21, called out as its own step because it protects **existing
-users** rather than new features: four new top-level keys landed in `SanneConfig`. Cheapest as an
-assertion in [Step 8](#step-8--sannetests-target), but worth doing through the UI too, since export →
-import is the path users actually take.
+**Delivered 2026-08-10** with hardware QA intentionally skipped.
 
-### Step 11 — Release prep
+1. ✅ [VERSION](./VERSION) → `0.2.0`; [CHANGELOG.md](./CHANGELOG.md) cut under `[0.2.0] — 2026-08-10`
+2. ✅ Release notes: [docs/releases/0.2.0.md](./docs/releases/0.2.0.md)
+3. ✅ `./scripts/package-dmg.sh` with Developer ID → `dist/Sanne-0.2.0.dmg` + `.sha256`
+4. ✅ Notarize + staple via `sanne-notary` (`Accepted`; ticket stapled on DMG and `.app`)
+5. ✅ Packaging fix: resource bundle is `Sanne_SanneKit.bundle` (not the stale `Sanne_Sanne.bundle`)
+6. ⬜ Hardware rows in [PROGRESS.md](./PROGRESS.md) stay 🟡 — not flipped to ✅ without device QA
+7. ⬜ GitHub Release / git tag `v0.2.0` — publish when ready (`docs/RELEASING.md`)
 
-Once 7–10 are clean:
-
-1. Move the six `[Unreleased]` → `Added` entries in [CHANGELOG.md](./CHANGELOG.md) under a version
-   heading; bump [VERSION](./VERSION) (currently `0.1.0`).
-2. `./scripts/package-dmg.sh` → versioned DMG + sha256; `./scripts/notarize.sh` needs Developer ID
-   credentials.
-3. Flip the relevant 🟡 rows in [PROGRESS.md](./PROGRESS.md) to ✅ as hardware QA confirms them.
-4. Carried forward from [PROGRESS.md](./PROGRESS.md) — outside this plan, but on the same release
-   path: app icon set, public GitHub Release once the repo is public, optional Sparkle auto-update,
-   Homebrew cask.
+Still outside this plan: app icon set, optional Sparkle, Homebrew cask.
 
 ### Later / optional
 
@@ -417,7 +450,7 @@ engine beyond frontmost-app matching. Longer-term product direction lives in
 1. Move a step from **Completed steps** or **Future steps** as its state changes, and update the
    at-a-glance table — remembering that `Code`, `Tests` and `Hardware QA` are independent columns.
 2. Never promote a row to ✅ on reasoning alone. Put the evidence in **What is actually proven**.
-3. Re-run `swift build` and confirm zero warnings before recording any step as code complete.
+3. Re-run `swift build` **and** `swift test` before recording any step as code complete.
 4. Update **Where we are** and **Next step** at the top — that pair is the whole point of the file.
 5. Mirror anything user-visible into [PROGRESS.md](./PROGRESS.md), [README.md](./README.md) and
    [CHANGELOG.md](./CHANGELOG.md).

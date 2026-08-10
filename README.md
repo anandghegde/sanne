@@ -56,6 +56,7 @@ Or for quick iteration:
 
 ```bash
 swift build
+swift test    # 35 pure-logic tests (SanneKit)
 swift run
 ```
 

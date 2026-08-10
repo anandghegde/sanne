@@ -88,6 +88,13 @@ if [[ -d "$APP_CANDIDATE" ]]; then
   xcrun stapler staple "$APP_CANDIDATE" 2>/dev/null || true
 fi
 
+# Stapling changes the DMG bytes — refresh the checksum if we just notarized a versioned DMG.
+if [[ "$TARGET" == *.dmg && -f "$TARGET" ]]; then
+  SUM_FILE="${TARGET}.sha256"
+  (cd "$(dirname "$TARGET")" && shasum -a 256 "$(basename "$TARGET")" > "$(basename "$SUM_FILE")")
+  echo "→ updated $(basename "$SUM_FILE")"
+fi
+
 echo ""
 echo "Notarized & stapled: $TARGET"
 echo "Users can open without right-click bypass (once Apple propagates)."

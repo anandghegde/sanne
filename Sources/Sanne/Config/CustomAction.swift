@@ -77,17 +77,37 @@ extension SanneConfig {
 
     /// Removes the def and any gesture override still pointing at it, so a deleted action can't
     /// leave slots bound to a dangling `action.custom.<uuid>` id.
+    ///
+    /// Clears both the global map and every app layer — a per-app remap to a deleted script would
+    /// otherwise keep resolving as "Missing action" with no path short of hand-editing the JSON.
     mutating func removeCustomAction(id: UUID) {
         customActions.removeAll { $0.id == id }
         let deadId = ActionCatalog.customActionId(id)
-        let staleSlots = gestureOverrides.filter { $0.value.actionId == deadId }.map(\.key)
+        clearDeadCustomActionReferences(deadId, in: &gestureOverrides)
+        for bundleId in appGestureOverrides.keys {
+            var map = appGestureOverrides[bundleId] ?? [:]
+            clearDeadCustomActionReferences(deadId, in: &map)
+            if map.isEmpty {
+                appGestureOverrides.removeValue(forKey: bundleId)
+            } else {
+                appGestureOverrides[bundleId] = map
+            }
+        }
+    }
+
+    /// Drops or blanks any entry in `map` whose `actionId` is `deadId`.
+    private func clearDeadCustomActionReferences(
+        _ deadId: String,
+        in map: inout [String: GestureOverrideEntry]
+    ) {
+        let staleSlots = map.filter { $0.value.actionId == deadId }.map(\.key)
         for slotId in staleSlots {
-            var entry = gestureOverrides[slotId] ?? GestureOverrideEntry()
+            var entry = map[slotId] ?? GestureOverrideEntry()
             entry.actionId = nil
             if entry.isEmpty {
-                gestureOverrides.removeValue(forKey: slotId)
+                map.removeValue(forKey: slotId)
             } else {
-                gestureOverrides[slotId] = entry
+                map[slotId] = entry
             }
         }
     }
