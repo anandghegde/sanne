@@ -7,10 +7,14 @@ Versioning follows [SemVer](https://semver.org/) once public releases begin.
 
 ## [Unreleased]
 
+### Added
+
+- **App icon** — 2D three-finger swipe mark (cream fingertips + motion dashes on clay)
+
 ### Planned
 
 - Notarized GitHub Releases workflow (credentials + CI)
-- App icon + menu bar template images
+- Menu bar template images
 - Homebrew cask
 - Optional Sparkle auto-update
 

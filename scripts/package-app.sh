@@ -6,7 +6,9 @@
 #
 # Env:
 #   SANNE_VERSION       Override marketing version (default: VERSION file or 0.1.0)
-#   SANNE_SIGN_IDENTITY codesign identity. Empty → ad-hoc (-).
+#   SANNE_SIGN_IDENTITY codesign identity. Unset → first Keychain Developer ID
+#                       Application, else Apple Development, else ad-hoc.
+#                       Set to "-" to force ad-hoc.
 #                       Example: "Developer ID Application: Your Name (TEAMID)"
 #   SANNE_ENTITLEMENTS  Optional path to .entitlements (hardened runtime for notarization)
 #
@@ -29,7 +31,34 @@ else
   VERSION="0.1.0"
 fi
 BUILD="${SANNE_BUILD:-$(date +%Y%m%d%H%M)}"
-SIGN_IDENTITY="${SANNE_SIGN_IDENTITY:-}"
+
+# A stable identity keeps Accessibility across rebuilds. Ad-hoc binds TCC to
+# this binary's cdhash, which changes every link. Do not hardcode a name —
+# Developer ID is per-person and this repo is public.
+pick_sign_identity() {
+  local list name
+  list="$(security find-identity -v -p codesigning 2>/dev/null || true)"
+  for prefix in "Developer ID Application: " "Apple Development: "; do
+    name="$(printf '%s\n' "$list" | sed -n "s/.*\"\(${prefix}.*\)\"/\1/p" | head -1)"
+    if [[ -n "$name" ]]; then
+      printf '%s\n' "$name"
+      return 0
+    fi
+  done
+  return 1
+}
+
+if [[ -n "${SANNE_SIGN_IDENTITY:-}" ]]; then
+  SIGN_IDENTITY="$SANNE_SIGN_IDENTITY"
+elif name="$(pick_sign_identity)"; then
+  SIGN_IDENTITY="$name"
+else
+  SIGN_IDENTITY=""
+fi
+# Explicit ad-hoc: SANNE_SIGN_IDENTITY=-
+if [[ "$SIGN_IDENTITY" == "-" ]]; then
+  SIGN_IDENTITY=""
+fi
 
 echo "→ version $VERSION (build $BUILD)"
 echo "→ swift build -c $CONFIG"
@@ -82,6 +111,14 @@ else
   echo "warn: Sanne_SanneKit.bundle not found — preset JSON may be missing" >&2
 fi
 
+ICON_ICNS="$ROOT/Resources/AppIcon.icns"
+if [[ -f "$ICON_ICNS" ]]; then
+  cp "$ICON_ICNS" "$RES/AppIcon.icns"
+  echo "→ copied AppIcon.icns"
+else
+  echo "warn: Resources/AppIcon.icns missing — app will use the generic executable icon" >&2
+fi
+
 # Minimal DMG-friendly README inside Resources (also useful for support).
 cat > "$RES/README.txt" <<EOF
 Sanne ${VERSION}
@@ -115,6 +152,8 @@ cat > "$CONTENTS/Info.plist" <<PLIST
 	<string>Sanne</string>
 	<key>CFBundleDisplayName</key>
 	<string>Sanne</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -153,7 +192,7 @@ elif [[ -n "$SIGN_IDENTITY" ]]; then
   codesign --verify --verbose=2 "$APP"
 else
   codesign --force --deep --sign - "$APP" 2>/dev/null || true
-  echo "→ ad-hoc codesign (set SANNE_SIGN_IDENTITY for Developer ID)"
+  echo "→ ad-hoc codesign (no Developer ID / Apple Development in Keychain; Accessibility will re-prompt after each rebuild)"
 fi
 
 # Export version for other scripts

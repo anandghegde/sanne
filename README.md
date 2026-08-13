@@ -21,7 +21,7 @@ Native macOS gestures for Magic Mouse and trackpad — opinionated defaults, ful
 - **Action name overlay** — a brief HUD names the action a gesture just fired; silent for clicks and drags
 - **Trackpad** — three-finger tap → middle-click; three-finger drag → text select / drag items (Apple/BTT-style); free-space 3- and 4-finger swipes and four-finger tap (off by default); tip-tap — rest one finger, tap beside it (off by default)
 - **Settings** — toggles for every default; reset to Sanne Standard
-- **Gesture remap** — Settings → Gestures: reassign any Standard gesture to catalog actions, a recorded keystroke, opening an app, or your own shell command / AppleScript / Shortcut
+- **Gesture remap** — on each device/zone page (Magic Mouse, Trackpad, Windows, Dock, Menubar), or All bindings: reassign any Standard gesture to catalog actions, a recorded keystroke, opening an app, or your own shell command / AppleScript / Shortcut
 - **Menu bar app** — pause/resume, Accessibility onboarding, conflict warning
 
 ### Why some gestures ship off

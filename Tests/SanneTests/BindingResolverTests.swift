@@ -230,4 +230,25 @@ final class BindingResolverTests: XCTestCase {
             )
         )
     }
+
+    func testMagicMouseDoubleTapHoldIsRemappable() {
+        var config = SanneConfig()
+        let slot = GestureSlots.slot(id: GestureSlots.ID.mmDrag)
+        XCTAssertEqual(slot?.actionFixed, false)
+        XCTAssertEqual(
+            BindingResolver.resolve(slotId: GestureSlots.ID.mmDrag, config: config)?.actionId,
+            ActionCatalog.ID.drag
+        )
+
+        config.setGestureOverride(
+            slotId: GestureSlots.ID.mmDrag,
+            enabled: nil,
+            actionId: ActionCatalog.ID.missionControl,
+            scope: .global
+        )
+        let remapped = BindingResolver.resolve(slotId: GestureSlots.ID.mmDrag, config: config)
+        XCTAssertEqual(remapped?.actionId, ActionCatalog.ID.missionControl)
+        XCTAssertEqual(remapped?.enabled, true)
+        XCTAssertEqual(remapped?.isModified, true)
+    }
 }

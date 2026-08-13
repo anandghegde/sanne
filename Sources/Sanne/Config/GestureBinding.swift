@@ -9,7 +9,7 @@ import Foundation
 /// Named for the bindings it scopes so it can't be read as a sibling of `AppOverrideScope`, which
 /// scopes something unrelated: which subsystems an app *pauses*.
 enum GestureBindingScope: Equatable {
-    /// The user's global remap layer (Settings → Gestures).
+    /// The user's global remap layer (device/zone pages and Settings → All bindings).
     case global
     /// One app's layer, in force while that app is frontmost.
     case app(bundleId: String)

@@ -323,6 +323,9 @@ final class MenuBarController: NSObject {
                 .environmentObject(AppController.shared)
                 .environmentObject(ConfigStore.shared)
             let hosting = NSHostingController(rootView: view)
+            // Empty: do not adopt SwiftUI ideal/min size. A tall Form/List would otherwise
+            // make the hosting view taller than the window and clip the page title.
+            hosting.sizingOptions = []
             let window = NSWindow(contentViewController: hosting)
             window.title = "Sanne"
             window.styleMask = [.titled, .closable, .miniaturizable, .resizable]

@@ -3,45 +3,57 @@ import CoreGraphics
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Full gesture list with enable toggles, action remap, modified badge, and per-row reset.
+/// Gesture list with enable toggles, action remap, modified badge, and per-row reset.
 /// Layout inspired by Multitouch.app: icon + title/subtitle rows in a clean list.
-struct GestureEditorView: View {
+///
+/// - Full catalog: Settings → All bindings (and the per-app sheet).
+/// - Device/zone pages pass `fixedGroup` plus optional `header` sections (master switches,
+///   tuning) so remaps live in the same scroll as the page settings. One List under a
+///   fixed toolbar — a grouped Form here overflows the Settings window on macOS.
+struct GestureEditorView<Header: View>: View {
     @EnvironmentObject private var store: ConfigStore
 
-    /// Which binding layer this editor reads and writes. Defaults to `.global` so Settings →
-    /// Gestures is unchanged; the per-app sheet passes `.app(bundleId:)`. Everything else in the
-    /// view goes through `resolved`, `isCustomized` and `inherited`, so this is the only branch.
+    /// Which binding layer this editor reads and writes. Defaults to `.global`; the per-app sheet
+    /// passes `.app(bundleId:)`. Everything else goes through `resolved`, `isCustomized`, and
+    /// `inherited`, so this is the only branch.
     var scope: GestureBindingScope = .global
+
+    /// When set, only this group's slots appear; group filter chips and section headers are hidden
+    /// (the parent page already names the device/zone).
+    var fixedGroup: GestureSlots.Group? = nil
+
+    /// Sticky title above search on a device/zone page. The Form below starts at the settings.
+    var pageTitle: String? = nil
+    var pageSubtitle: String? = nil
+
+    private let header: Header
 
     @State private var query = ""
     @State private var groupFilter: GestureSlots.Group?
     @State private var showModifiedOnly = false
     @State private var pickingSlotId: String?
 
+    init(
+        scope: GestureBindingScope = .global,
+        fixedGroup: GestureSlots.Group? = nil,
+        pageTitle: String? = nil,
+        pageSubtitle: String? = nil,
+        @ViewBuilder header: () -> Header
+    ) {
+        self.scope = scope
+        self.fixedGroup = fixedGroup
+        self.pageTitle = pageTitle
+        self.pageSubtitle = pageSubtitle
+        self.header = header()
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             toolbar
             Divider().opacity(0.6)
-            if filteredSlots.isEmpty {
-                emptyState
-            } else {
-                List {
-                    ForEach(grouped, id: \.0) { group, slots in
-                        Section {
-                            ForEach(slots) { slot in
-                                row(slot)
-                            }
-                        } header: {
-                            Label(group.rawValue, systemImage: GestureGlyph.systemImage(forGroup: group))
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(.secondary)
-                                .textCase(nil)
-                        }
-                    }
-                }
-                .listStyle(.inset)
-            }
+            catalog
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .sheet(item: Binding(
             get: { pickingSlotId.map { SlotPickIdent(id: $0) } },
             set: { pickingSlotId = $0?.id }
@@ -65,6 +77,56 @@ struct GestureEditorView: View {
         }
     }
 
+    @ViewBuilder
+    private var catalog: some View {
+        if fixedGroup != nil {
+            // List, not Form: grouped Form reports its full content height and the
+            // window clips the page title. List takes the remaining pane and scrolls.
+            List {
+                header
+                slotRows
+            }
+            .listStyle(.inset)
+            .frame(minHeight: 0)
+        } else if filteredSlots.isEmpty {
+            emptyState
+        } else {
+            List {
+                ForEach(grouped, id: \.0) { group, slots in
+                    Section {
+                        ForEach(slots) { slot in
+                            row(slot)
+                        }
+                    } header: {
+                        Label(group.rawValue, systemImage: GestureGlyph.systemImage(forGroup: group))
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .textCase(nil)
+                    }
+                }
+            }
+            .listStyle(.inset)
+            .frame(minHeight: 0)
+        }
+    }
+
+    @ViewBuilder
+    private var slotRows: some View {
+        if filteredSlots.isEmpty {
+            Section {
+                emptyState
+                    .frame(maxWidth: .infinity, minHeight: 160)
+                    .listRowBackground(Color.clear)
+            }
+        } else {
+            Section {
+                ForEach(filteredSlots) { slot in
+                    row(slot)
+                }
+            }
+        }
+    }
+
     private var emptyState: some View {
         VStack(spacing: 10) {
             Image(systemName: "hand.draw")
@@ -81,6 +143,12 @@ struct GestureEditorView: View {
 
     private var toolbar: some View {
         VStack(alignment: .leading, spacing: 10) {
+            if let pageTitle {
+                SannePageHeader(title: pageTitle, subtitle: pageSubtitle)
+                    .padding(.horizontal, 14)
+                    .padding(.top, 16)
+            }
+
             HStack(spacing: 10) {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(.secondary)
@@ -100,7 +168,7 @@ struct GestureEditorView: View {
             .padding(.vertical, 8)
             .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             .padding(.horizontal, 14)
-            .padding(.top, 12)
+            .padding(.top, pageTitle == nil ? 12 : 2)
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
@@ -112,10 +180,13 @@ struct GestureEditorView: View {
                         showModifiedOnly = true
                         groupFilter = nil
                     }
-                    ForEach(GestureSlots.Group.allCases) { g in
-                        SanneFilterChip(title: g.rawValue, selected: groupFilter == g && !showModifiedOnly) {
-                            groupFilter = g
-                            showModifiedOnly = false
+                    // Group chips only for the cross-cutting All bindings catalog.
+                    if fixedGroup == nil {
+                        ForEach(GestureSlots.Group.allCases) { g in
+                            SanneFilterChip(title: g.rawValue, selected: groupFilter == g && !showModifiedOnly) {
+                                groupFilter = g
+                                showModifiedOnly = false
+                            }
                         }
                     }
                 }
@@ -128,13 +199,13 @@ struct GestureEditorView: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 8)
-                let n = BindingResolver.customizedCount(config: store.config, scope: scope)
+                let n = customizedCountInView
                 if n > 0 {
                     Text("\(n) modified")
                         .font(.caption.weight(.medium))
                         .foregroundStyle(modifiedBadgeTint)
                     Button(resetAllTitle) {
-                        store.update { $0.clearAllGestureOverrides(scope: scope) }
+                        resetVisibleOverrides()
                     }
                     .font(.caption)
                 }
@@ -175,14 +246,18 @@ struct GestureEditorView: View {
                         badge("From global", tint: .gray)
                     }
                 }
-                Text(ActionCatalog.title(for: actionId))
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                // Remappable rows put the action on the picker button. Fixed rows have no
+                // picker, so the bound action stays here as the subtitle.
+                if slot.actionFixed {
+                    Text(ActionCatalog.title(for: actionId))
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
                 if !slot.detail.isEmpty {
                     Text(slot.detail)
                         .font(.caption)
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(slot.actionFixed ? .tertiary : .secondary)
                         .lineLimit(1)
                 }
             }
@@ -197,7 +272,8 @@ struct GestureEditorView: View {
                     pickingSlotId = slot.id
                 } label: {
                     HStack(spacing: 4) {
-                        Text("Action")
+                        Text(ActionCatalog.title(for: actionId))
+                            .lineLimit(1)
                         Image(systemName: "chevron.up.chevron.down")
                             .font(.caption2)
                     }
@@ -207,7 +283,7 @@ struct GestureEditorView: View {
                     .background(Color.primary.opacity(0.06), in: Capsule())
                 }
                 .buttonStyle(.plain)
-                .help(ActionCatalog.title(for: actionId))
+                .help("Change action")
             }
 
             Button("Reset") {
@@ -225,9 +301,10 @@ struct GestureEditorView: View {
 
     private var filteredSlots: [GestureSlots.Slot] {
         GestureSlots.all.filter { slot in
+            if let fixedGroup, slot.group != fixedGroup { return false }
             if showModifiedOnly {
                 guard isCustomized(slot.id) else { return false }
-            } else if let groupFilter, slot.group != groupFilter {
+            } else if fixedGroup == nil, let groupFilter, slot.group != groupFilter {
                 return false
             }
             let q = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -236,6 +313,29 @@ struct GestureEditorView: View {
                 .joined(separator: " ")
                 .lowercased()
             return q.split(separator: " ").allSatisfy { hay.contains($0) }
+        }
+    }
+
+    /// Modified count for the badge / reset affordance: scoped to `fixedGroup` when embedded.
+    private var customizedCountInView: Int {
+        let slots: [GestureSlots.Slot]
+        if let fixedGroup {
+            slots = GestureSlots.all.filter { $0.group == fixedGroup }
+        } else {
+            slots = GestureSlots.all
+        }
+        return slots.filter { isCustomized($0.id) }.count
+    }
+
+    private func resetVisibleOverrides() {
+        store.update { cfg in
+            if let fixedGroup {
+                for slot in GestureSlots.all where slot.group == fixedGroup {
+                    cfg.clearGestureOverride(slotId: slot.id, scope: scope)
+                }
+            } else {
+                cfg.clearAllGestureOverrides(scope: scope)
+            }
         }
     }
 
@@ -290,7 +390,10 @@ struct GestureEditorView: View {
     private var scopeHint: String {
         switch scope {
         case .global:
-            return "Change any default action. Section toggles still apply as master switches."
+            if fixedGroup != nil {
+                return "Enable a gesture and change its action. Master switches for this section still apply."
+            }
+            return "Search every gesture. Day-to-day remaps live under Magic Mouse, Trackpad, Windows, Dock, and Menubar."
         case .app(let bundleId):
             let name = ActionCatalog.appDisplayName(bundleId: bundleId)
             // The last clause is the one surprise in this sheet: recognition is gated globally, so
@@ -301,7 +404,8 @@ struct GestureEditorView: View {
 
     private var resetAllTitle: String {
         switch scope {
-        case .global: return "Reset all remaps"
+        case .global:
+            return fixedGroup != nil ? "Reset these remaps" : "Reset all remaps"
         case .app: return "Reset this app"
         }
     }
@@ -365,6 +469,22 @@ struct GestureEditorView: View {
             cfg.setGestureOverride(slotId: slotId, entry: entry, scope: scope)
             cfg.enableLegacyGate(slotId: slotId)
         }
+    }
+}
+
+extension GestureEditorView where Header == EmptyView {
+    init(
+        scope: GestureBindingScope = .global,
+        fixedGroup: GestureSlots.Group? = nil,
+        pageTitle: String? = nil,
+        pageSubtitle: String? = nil
+    ) {
+        self.init(
+            scope: scope,
+            fixedGroup: fixedGroup,
+            pageTitle: pageTitle,
+            pageSubtitle: pageSubtitle
+        ) { EmptyView() }
     }
 }
 

@@ -17,7 +17,7 @@ final class MagicMouseTapController: @unchecked Sendable {
     private var started = false
     private let lock = NSLock()
 
-    private var configProvider: () -> MagicMouseTapConfig = { .init() }
+    private var configProvider: () -> SanneConfig = { .default }
     private var isPaused: () -> Bool = { false }
     private var onEvent: ((MagicMouseEvent) -> Void)?
 
@@ -110,6 +110,20 @@ final class MagicMouseTapController: @unchecked Sendable {
     private static let doubleTapWindow: TimeInterval = 0.35
     private static let dragHoldMin: TimeInterval = 0.15
 
+    /// Effective double-tap-hold binding. Enable and action both come from
+    /// `BindingResolver` so a remap or a row-toggle beats the legacy `tapDrag` flag.
+    private static func resolvedDrag(_ config: SanneConfig) -> ResolvedGesture? {
+        BindingResolver.resolve(
+            slotId: GestureSlots.ID.mmDrag,
+            config: config,
+            frontmostBundleId: NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        )
+    }
+
+    private static func dragSlotEnabled(_ config: SanneConfig) -> Bool {
+        resolvedDrag(config)?.enabled ?? false
+    }
+
     // MARK: Multi-click (double / triple)
 
     private var lastClickTime: Date?
@@ -187,7 +201,7 @@ final class MagicMouseTapController: @unchecked Sendable {
     }
 
     func start(
-        config: @escaping () -> MagicMouseTapConfig,
+        config: @escaping () -> SanneConfig,
         paused: @escaping () -> Bool,
         onEvent: @escaping (MagicMouseEvent) -> Void
     ) {
@@ -444,7 +458,8 @@ final class MagicMouseTapController: @unchecked Sendable {
         callbackCount += 1
         let n = callbackCount
         let paused = isPaused()
-        let cfg = configProvider()
+        let full = configProvider()
+        let cfg = full.magicMouseTaps
         lock.unlock()
 
         if !cfg.enabled || paused { return }
@@ -585,7 +600,7 @@ final class MagicMouseTapController: @unchecked Sendable {
 
             // Don't start tap-drag while scroll lock is active (residual after scroll).
             let blocked = isTapBlockedUnlocked(contactStart: touchStartTime!)
-            if cfg.tapDrag,
+            if Self.dragSlotEnabled(full),
                !blocked,
                let last = lastLeftTapTime,
                Date().timeIntervalSince(last) < Self.doubleTapWindow
@@ -670,15 +685,30 @@ final class MagicMouseTapController: @unchecked Sendable {
         if dragPhase == .pendingHold, let start = touchStartTime {
             let held = Date().timeIntervalSince(start)
             if held >= Self.dragHoldMin {
-                dragPhase = .active
-                lastDragPostedCursor = cursor
-                let point = cursor
                 lastClickTime = nil
                 lastClickCount = 0
-                Log.info(.tap, "→ BEGIN DRAG held=\(String(format: "%.3f", held))")
-                armSyntheticEchoIgnoreUnlocked()
-                DispatchQueue.main.async {
-                    ClickEmitter.mouseDown(.left, at: point)
+                let resolved = Self.resolvedDrag(full)
+                if resolved?.enabled == true, resolved?.actionId == ActionCatalog.ID.drag {
+                    dragPhase = .active
+                    lastDragPostedCursor = cursor
+                    let point = cursor
+                    Log.info(.tap, "→ BEGIN DRAG held=\(String(format: "%.3f", held))")
+                    armSyntheticEchoIgnoreUnlocked()
+                    DispatchQueue.main.async {
+                        ClickEmitter.mouseDown(.left, at: point)
+                    }
+                } else if resolved?.enabled == true {
+                    // Remapped off Drag (hold): fire once at hold-commit, don't start a session.
+                    dragPhase = .none
+                    suppressUntilLift = true
+                    Log.info(
+                        .tap,
+                        "→ DOUBLE-TAP HOLD → \(resolved?.actionId ?? "") " +
+                        "held=\(String(format: "%.3f", held))"
+                    )
+                    emit(.recognized(slotId: GestureSlots.ID.mmDrag, clickCount: 1))
+                } else {
+                    dragPhase = .none
                 }
             }
         }

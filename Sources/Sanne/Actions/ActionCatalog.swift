@@ -135,7 +135,8 @@ enum ActionCatalog {
         static let keySpotlight = "keystroke.spotlight"
         static let keySwitchApp = "keystroke.switchApp"
 
-        /// Continuous drag (double-tap-hold) — not remappable to arbitrary actions.
+        /// Continuous drag (double-tap-hold). Remapping the slot fires the new
+        /// action once when the hold commits, instead of starting a drag session.
         static let drag = "special.drag"
         /// Continuous window move (2F top-edge) — not remappable.
         static let moveWindow = "special.moveWindow"

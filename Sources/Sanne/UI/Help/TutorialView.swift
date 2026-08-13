@@ -46,7 +46,7 @@ struct TutorialView: View {
             Step(
                 id: "more",
                 title: "Keyboard & more",
-                body: "• ⌃⌥ + arrows — snap / cycle thirds\n• ⌃⌥⌘ + ←/→ — move to another display\n• ⌥⌘ + drag — move window from anywhere\n• ⌃⌘ + drag — resize from nearest edge\n• Trackpad: 3-finger drag — select text / drag items\n• Magic Mouse: 2 fingers on top edge + move → drag window\n\nDock icons and the menu bar also accept two-finger swipes. Remap any gesture in Settings → Gestures (including common keystrokes).",
+                body: "• ⌃⌥ + arrows — snap / cycle thirds\n• ⌃⌥⌘ + ←/→ — move to another display\n• ⌥⌘ + drag — move window from anywhere\n• ⌃⌘ + drag — resize from nearest edge\n• Trackpad: 3-finger drag — select text / drag items\n• Magic Mouse: 2 fingers on top edge + move → drag window\n\nDock icons and the menu bar also accept two-finger swipes. Remap any gesture on its device or zone page in Settings (Magic Mouse, Trackpad, Windows, Dock, Menubar) — including common keystrokes.",
                 systemImage: "keyboard",
                 signal: nil,
                 hint: nil

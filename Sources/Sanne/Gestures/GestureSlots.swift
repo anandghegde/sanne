@@ -148,7 +148,7 @@ enum GestureSlots {
         .init(id: ID.mmMiddle3, group: .magicMouse, title: "3-finger touch", detail: "Multi-touch",
               defaultActionId: ActionCatalog.ID.clickMiddle, legacyGate: .mmMiddleThree, actionFixed: false),
         .init(id: ID.mmDrag, group: .magicMouse, title: "Double-tap hold", detail: "Tap-drag",
-              defaultActionId: ActionCatalog.ID.drag, legacyGate: .mmTapDrag, actionFixed: true),
+              defaultActionId: ActionCatalog.ID.drag, legacyGate: .mmTapDrag, actionFixed: false),
         .init(id: ID.mm2fDoubleMC, group: .magicMouse, title: "2-finger double-tap", detail: "Mission Control",
               defaultActionId: ActionCatalog.ID.missionControl, legacyGate: .mmTwoFingerDoubleMC, actionFixed: false),
         .init(id: ID.mm2fSwipeUp, group: .magicMouse, title: "2-finger swipe up", detail: "",
@@ -418,8 +418,7 @@ enum BindingResolver {
     /// 3. the slot's Sanne Standard default, enabled per its legacy section toggle
     ///
     /// `frontmostBundleId` defaults to nil because every caller that wants the app-independent
-    /// picture (the Gestures tab, the cheat sheet, everything predating per-app bindings) wants
-    /// layer 1 skipped entirely.
+    /// picture (device pages, All bindings, the cheat sheet) wants layer 1 skipped entirely.
     static func resolve(
         slotId: String,
         config: SanneConfig,

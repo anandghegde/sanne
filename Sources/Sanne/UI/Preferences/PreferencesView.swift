@@ -8,14 +8,15 @@ struct PreferencesView: View {
 
     private enum Tab: String, CaseIterable, Identifiable, Hashable {
         case general = "Home"
-        case gestures = "Gestures"
         case magicMouse = "Magic Mouse"
+        case trackpad = "Trackpad"
         case windows = "Windows"
         case keyboard = "Keyboard"
         case apps = "Apps"
         case dock = "Dock"
         case menubar = "Menubar"
-        case trackpad = "Trackpad"
+        /// Cross-cutting catalog; day-to-day remaps live on each device/zone page.
+        case allBindings = "All bindings"
         case debug = "Debug Log"
         case about = "About"
 
@@ -24,14 +25,14 @@ struct PreferencesView: View {
         var systemImage: String {
             switch self {
             case .general: return "house.fill"
-            case .gestures: return "hand.draw.fill"
             case .magicMouse: return "computermouse.fill"
+            case .trackpad: return "rectangle.and.hand.point.up.left.fill"
             case .windows: return "macwindow"
             case .keyboard: return "keyboard.fill"
             case .apps: return "app.badge.fill"
             case .dock: return "dock.rectangle"
             case .menubar: return "menubar.rectangle"
-            case .trackpad: return "rectangle.and.hand.point.up.left.fill"
+            case .allBindings: return "list.bullet.rectangle"
             case .debug: return "text.alignleft"
             case .about: return "info.circle.fill"
             }
@@ -41,14 +42,14 @@ struct PreferencesView: View {
         var tint: Color {
             switch self {
             case .general: return .blue
-            case .gestures: return .purple
             case .magicMouse: return .pink
+            case .trackpad: return .mint
             case .windows: return .indigo
             case .keyboard: return .gray
             case .apps: return .orange
             case .dock: return .teal
             case .menubar: return .cyan
-            case .trackpad: return .mint
+            case .allBindings: return .purple
             case .debug: return .brown
             case .about: return .blue
             }
@@ -59,7 +60,10 @@ struct PreferencesView: View {
     @State private var importExportMessage: String?
 
     var body: some View {
-        NavigationSplitView {
+        // Manual sidebar, not NavigationSplitView. A split view + grouped Form in an
+        // NSHostingController window reports the Form's full content height, then the
+        // window clips the sidebar, page title, and top rows (and the Form will not scroll).
+        HStack(spacing: 0) {
             List(Tab.allCases, selection: $tab) { t in
                 Label {
                     Text(t.rawValue)
@@ -77,19 +81,21 @@ struct PreferencesView: View {
                 .tag(t)
             }
             .listStyle(.sidebar)
-            .navigationSplitViewColumnWidth(min: 150, ideal: SanneChrome.sidebarWidth, max: 200)
-        } detail: {
+            .frame(width: SanneChrome.sidebarWidth)
+
+            Divider()
+
             Group {
                 switch tab ?? .general {
                 case .general: general
-                case .gestures: GestureEditorView()
-                case .magicMouse: detailScroll { magicMouse }
-                case .windows: detailScroll { windows }
+                case .magicMouse: magicMouse
+                case .trackpad: trackpad
+                case .windows: windows
                 case .keyboard: detailScroll { keyboard }
                 case .apps: detailScroll { apps }
-                case .dock: detailScroll { dock }
-                case .menubar: detailScroll { menubar }
-                case .trackpad: detailScroll { trackpad }
+                case .dock: dock
+                case .menubar: menubar
+                case .allBindings: GestureEditorView()
                 case .debug: DebugLogView()
                 case .about: detailScroll { about }
                 }
@@ -196,7 +202,7 @@ struct PreferencesView: View {
                         }
                         let modified = BindingResolver.modifiedCount(config: store.config)
                         if modified > 0 {
-                            Text("\(modified) gesture\(modified == 1 ? "" : "s") remapped — see Gestures")
+                            Text("\(modified) gesture\(modified == 1 ? "" : "s") remapped — edit on Magic Mouse, Trackpad, Windows, Dock, or Menubar (or All bindings)")
                                 .font(.caption)
                                 .foregroundStyle(.orange)
                         }
@@ -320,106 +326,46 @@ struct PreferencesView: View {
 
     // MARK: - Sections
 
-    private var magicMouse: some View {
-        Form {
-            Section {
-                SannePageHeader(
-                    title: "Magic Mouse",
-                    subtitle: "Silent taps and multi-finger actions that Apple never shipped."
-                )
-                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 8, trailing: 0))
-                .listRowBackground(Color.clear)
-            }
+    /// Device/zone pages: master switches + tuning share one scroll with the remappable slots.
+    /// GestureEditorView owns that scroll (List under a fixed toolbar). Do not wrap this
+    /// in another Form or ScrollView — two scroll views fight for height on macOS.
+    private func deviceZonePage<Top: View>(
+        group: GestureSlots.Group,
+        title: String,
+        subtitle: String,
+        @ViewBuilder top: () -> Top
+    ) -> some View {
+        GestureEditorView(
+            fixedGroup: group,
+            pageTitle: title,
+            pageSubtitle: subtitle,
+            header: top
+        )
+    }
 
+    private var magicMouse: some View {
+        deviceZonePage(
+            group: .magicMouse,
+            title: "Magic Mouse",
+            subtitle: "Silent taps and multi-finger actions. Enable each gesture and change its action below."
+        ) {
             Section {
                 Toggle("Enable Magic Mouse taps", isOn: Binding(
                     get: { store.config.magicMouseTaps.enabled },
                     set: { v in store.update { $0.magicMouseTaps.enabled = v } }
                 ))
-                Text("Tap the surface instead of physically clicking. Works best with a Magic Mouse.")
+                Text("Master switch for all Magic Mouse gestures. Works best with a Magic Mouse.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
 
-            Section("Clicks") {
-                GestureToggleRow(
-                    diagram: .mouse(1, .tap, side: .left),
-                    title: "Left tap → click",
-                    isOn: bindMM(\.leftTap)
-                )
-                GestureToggleRow(
-                    diagram: .mouse(1, .tap, side: .right),
-                    title: "Right tap → right-click",
-                    isOn: bindMM(\.rightTap)
-                )
+            // multiClick has no remappable slot — multi-tap is still multi-click, not an action.
+            Section("Options") {
                 GestureToggleRow(
                     diagram: .mouse(1, .doubleTap),
                     title: "Double / triple tap → multi-click",
                     subtitle: "Double-tap renames files / selects words; triple selects a line or paragraph.",
                     isOn: bindMM(\.multiClick)
-                )
-                GestureToggleRow(
-                    diagram: .mouse(1, .tapHoldDrag),
-                    title: "Double-tap and hold → drag",
-                    isOn: bindMM(\.tapDrag)
-                )
-            }
-
-            Section("Swipe between pages") {
-                GestureToggleRow(
-                    diagram: .mouse(1, .swipe(.leftRight)),
-                    title: "1-finger swipe L/R → Back / Forward",
-                    subtitle: "Replaces macOS “Swipe between pages” (broken while Sanne owns the mouse). Natural direction: swipe right → back, swipe left → forward.",
-                    isOn: bindMM(\.oneFingerSwipePages)
-                )
-            }
-
-            Section("Middle-click") {
-                GestureToggleRow(
-                    diagram: .mouse(2, .touch),
-                    title: "Two-finger touch → middle-click",
-                    isOn: bindMM(\.middleTwoFinger)
-                )
-                GestureToggleRow(
-                    diagram: .mouse(3, .touch),
-                    title: "Three-finger touch → middle-click",
-                    isOn: bindMM(\.middleThreeFinger)
-                )
-            }
-
-            Section("Multi-finger") {
-                GestureToggleRow(
-                    diagram: .mouse(2, .doubleTap),
-                    title: "2-finger double-tap → Mission Control",
-                    isOn: bindMM(\.twoFingerDoubleTapMissionControl)
-                )
-                GestureToggleRow(
-                    diagram: .mouse(2, .swipe(.up)),
-                    title: "2-finger swipe up → Mission Control",
-                    isOn: bindMM(\.twoFingerSwipeUpMissionControl)
-                )
-                GestureToggleRow(
-                    diagram: .mouse(2, .swipe(.down)),
-                    title: "2-finger swipe down → App Exposé",
-                    isOn: bindMM(\.twoFingerSwipeDownAppExpose)
-                )
-                GestureToggleRow(
-                    diagram: .mouse(2, .swipe(.leftRight)),
-                    title: "2-finger swipe L/R → Spaces",
-                    subtitle: "Off by default so it won’t fight macOS’s built-in two-finger swipe.",
-                    isOn: bindMM(\.twoFingerSwipeSpaces)
-                )
-                GestureToggleRow(
-                    diagram: .mouse(3, .swipe(.leftRight)),
-                    title: "3-finger swipes",
-                    subtitle: "L/R → previous / next tab · up → Mission Control · down → App Exposé. Same chord as the 3-finger middle-click — sliding swipes, holding still clicks. Off by default, since a third finger is easy to rest on the shell by accident. Remap each direction in Gestures.",
-                    isOn: bindMM(\.threeFingerSwipes)
-                )
-                GestureToggleRow(
-                    diagram: .mouse(2, .drag, zone: .topEdge),
-                    title: "2-finger top-edge drag → move window",
-                    subtitle: "Rest two fingers near the top of the Magic Mouse, then move the mouse to drag the window under the cursor.",
-                    isOn: bindMM(\.twoFingerTopEdgeMove)
                 )
             }
 
@@ -455,20 +401,14 @@ struct PreferencesView: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .formStyle(.grouped)
     }
 
     private var windows: some View {
-        Form {
-            Section {
-                SannePageHeader(
-                    title: "Windows",
-                    subtitle: "Two fingers on a title bar to snap, maximize, minimize, or close."
-                )
-                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 8, trailing: 0))
-                .listRowBackground(Color.clear)
-            }
-
+        deviceZonePage(
+            group: .titlebar,
+            title: "Windows",
+            subtitle: "Two fingers on a title bar to snap, maximize, minimize, or close. Remap each gesture below."
+        ) {
             Section {
                 Toggle("Titlebar window gestures", isOn: Binding(
                     get: { store.config.titlebarGestures.enabled },
@@ -476,52 +416,6 @@ struct PreferencesView: View {
                 ))
                 windowGestureMap
                     .padding(.vertical, 4)
-            }
-
-            Section("Actions") {
-                GestureToggleRow(
-                    diagram: .trackpad(2, .swipe(.leftRight), zone: .topEdge),
-                    title: "Swipe halves",
-                    isOn: bindTB(\.swipeHalves)
-                )
-                GestureToggleRow(
-                    diagram: .trackpad(2, .swipe(.leftRight), zone: .topEdge, long: true),
-                    title: "Long swipe L/R → thirds",
-                    isOn: bindTB(\.swipeThirds)
-                )
-                GestureToggleRow(
-                    diagram: .trackpad(2, .swipe(.downRight), zone: .topEdge),
-                    title: "Swipe quarters (diagonal)",
-                    isOn: bindTB(\.swipeQuarters)
-                )
-                GestureToggleRow(
-                    diagram: .trackpad(2, .swipe(.up), zone: .topEdge),
-                    title: "Swipe up → maximize",
-                    isOn: bindTB(\.swipeMaximize)
-                )
-                GestureToggleRow(
-                    diagram: .trackpad(2, .swipe(.down), zone: .topEdge),
-                    title: "Swipe down → minimize",
-                    isOn: bindTB(\.swipeMinimize)
-                )
-                GestureToggleRow(
-                    diagram: .trackpad(2, .pinchIn, zone: .topEdge),
-                    title: "Pinch in → close",
-                    isOn: bindTB(\.pinchClose)
-                )
-                GestureToggleRow(
-                    diagram: .trackpad(2, .pinchOut, zone: .topEdge),
-                    title: "Pinch out → fullscreen",
-                    isOn: bindTB(\.pinchFullscreen)
-                )
-                GestureToggleRow(
-                    diagram: .trackpad(3, .swipe(.leftRight), zone: .topEdge),
-                    title: "3-finger swipe L/R → adjacent display",
-                    isOn: bindTB(\.threeFingerMoveDisplay)
-                )
-                Text("Long up → large center. Short L/R → halves; long L/R → left/right third.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
 
             Section("Modifier + drag") {
@@ -551,7 +445,6 @@ struct PreferencesView: View {
                 }
             }
         }
-        .formStyle(.grouped)
     }
 
     private var windowGestureMap: some View {
@@ -742,157 +635,49 @@ struct PreferencesView: View {
     }
 
     private var dock: some View {
-        Form {
-            Section {
-                SannePageHeader(
-                    title: "Dock",
-                    subtitle: "Two fingers on a Dock icon to activate, hide, or open a new window."
-                )
-                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 8, trailing: 0))
-                .listRowBackground(Color.clear)
-            }
-
+        deviceZonePage(
+            group: .dock,
+            title: "Dock",
+            subtitle: "Two fingers on a Dock icon. Enable each gesture and change its action below."
+        ) {
             Section {
                 Toggle("Dock gestures", isOn: Binding(
                     get: { store.config.dockGestures.enabled },
                     set: { v in store.update { $0.dockGestures.enabled = v } }
                 ))
             }
-            Section("Actions") {
-                GestureToggleRow(
-                    diagram: .trackpad(2, .swipe(.up), zone: .bottomEdge),
-                    title: "Swipe up → activate / unminimize",
-                    isOn: bindDock(\.swipeActivate)
-                )
-                GestureToggleRow(
-                    diagram: .trackpad(2, .swipe(.down), zone: .bottomEdge),
-                    title: "Swipe down → hide app",
-                    isOn: bindDock(\.swipeHide)
-                )
-                GestureToggleRow(
-                    diagram: .trackpad(2, .pinchOut, zone: .bottomEdge),
-                    title: "Pinch out → new window (⌘N)",
-                    isOn: bindDock(\.pinchNewWindow)
-                )
-                GestureToggleRow(
-                    diagram: .trackpad(2, .pinchIn, zone: .bottomEdge),
-                    title: "Pinch in → quit (⌘Q)",
-                    isOn: bindDock(\.pinchQuit)
-                )
-            }
         }
-        .formStyle(.grouped)
     }
 
     private var menubar: some View {
-        Form {
-            Section {
-                SannePageHeader(
-                    title: "Menubar",
-                    subtitle: "Two fingers on the menu bar band to cycle windows and hide others."
-                )
-                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 8, trailing: 0))
-                .listRowBackground(Color.clear)
-            }
-
+        deviceZonePage(
+            group: .menubar,
+            title: "Menubar",
+            subtitle: "Two fingers on the menu bar band. Enable each gesture and change its action below."
+        ) {
             Section {
                 Toggle("Menubar gestures", isOn: Binding(
                     get: { store.config.menubarGestures.enabled },
                     set: { v in store.update { $0.menubarGestures.enabled = v } }
                 ))
             }
-            Section("Actions") {
-                GestureToggleRow(
-                    diagram: .trackpad(2, .swipe(.leftRight), zone: .topEdge),
-                    title: "Swipe L/R → previous / next window",
-                    isOn: bindMB(\.swipeCycleWindows)
-                )
-                GestureToggleRow(
-                    diagram: .trackpad(2, .swipe(.down), zone: .topEdge),
-                    title: "Swipe down → hide other apps",
-                    isOn: bindMB(\.swipeHideOthers)
-                )
-                GestureToggleRow(
-                    diagram: .trackpad(2, .swipe(.up), zone: .topEdge),
-                    title: "Swipe up → unminimize frontmost",
-                    isOn: bindMB(\.swipeUnminimize)
-                )
-            }
         }
-        .formStyle(.grouped)
     }
 
     private var trackpad: some View {
-        Form {
-            Section {
-                SannePageHeader(
-                    title: "Trackpad",
-                    subtitle: "Free-space taps, drags, and multi-finger swipes."
-                )
-                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 8, trailing: 0))
-                .listRowBackground(Color.clear)
-            }
-
-            Section {
-                GestureToggleRow(
-                    diagram: .trackpad(3, .tap),
-                    title: "Three-finger tap → middle-click",
-                    isOn: Binding(
-                        get: { store.config.trackpad.threeFingerTapMiddleClick },
-                        set: { v in store.update { $0.trackpad.threeFingerTapMiddleClick = v } }
-                    )
-                )
-                GestureToggleRow(
-                    diagram: .trackpad(3, .drag),
-                    title: "Three-finger drag → select / drag",
-                    subtitle: "Place three fingers and move to select text or drag items (same idea as macOS Accessibility Three Finger Drag). When on, use four fingers for Mission Control if needed.",
-                    isOn: Binding(
-                        get: { store.config.trackpad.threeFingerDrag },
-                        set: { v in store.update { $0.trackpad.threeFingerDrag = v } }
-                    )
-                )
-            }
-
-            Section("Tip-tap") {
-                GestureToggleRow(
-                    diagram: .trackpad(2, .tipTap(.right)),
-                    title: "Tip-tap left / right",
-                    subtitle: "Rest one finger, then tap beside it — tap left → previous tab, tap right → next tab. Remap each side in Gestures.",
-                    isOn: bindTrackpad(\.tipTap)
-                )
-                HStack(alignment: .top, spacing: 8) {
-                    Image(systemName: "info.circle")
-                        .foregroundStyle(.secondary)
-                    Text("macOS has no tip-tap gesture, so unlike the swipes below this needs no System Settings changes. " +
-                         "Keep the resting finger still — sliding it cancels the gesture, so two-finger scrolling keeps working.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-
-            Section("Free-space swipes") {
-                GestureToggleRow(
-                    diagram: .trackpad(3, .swipe(.leftRight)),
-                    title: "Three-finger swipes",
-                    subtitle: "Left → forward · right → back · up → maximize · down → minimize. Remap each direction in Gestures.",
-                    isOn: bindTrackpad(\.threeFingerSwipes)
-                )
-                GestureToggleRow(
-                    diagram: .trackpad(4, .swipe(.leftRight)),
-                    title: "Four-finger swipes",
-                    subtitle: "L/R → previous / next tab · up → Mission Control · down → App Exposé.",
-                    isOn: bindTrackpad(\.fourFingerSwipes)
-                )
-                GestureToggleRow(
-                    diagram: .trackpad(4, .tap),
-                    title: "Four-finger tap → Spotlight",
-                    isOn: bindTrackpad(\.fourFingerTap)
-                )
-                if trackpadSystemGestureConflict {
+        deviceZonePage(
+            group: .trackpad,
+            title: "Trackpad",
+            subtitle: "Free-space taps, drags, and multi-finger swipes. Enable each gesture and change its action below."
+        ) {
+            if trackpadSystemGestureConflict {
+                Section {
                     systemGestureHint
                 }
-                if store.config.trackpad.threeFingerSwipes, store.config.trackpad.threeFingerDrag {
+            }
+
+            if store.config.trackpad.threeFingerSwipes, store.config.trackpad.threeFingerDrag {
+                Section {
                     HStack(alignment: .top, spacing: 8) {
                         Image(systemName: "info.circle")
                             .foregroundStyle(.secondary)
@@ -901,6 +686,17 @@ struct PreferencesView: View {
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
+                }
+            }
+
+            Section {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "info.circle")
+                        .foregroundStyle(.secondary)
+                    Text("Tip-tap needs no System Settings changes. Keep the resting finger still — sliding it cancels the gesture, so two-finger scrolling keeps working.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
 
@@ -913,7 +709,6 @@ struct PreferencesView: View {
                 }
             }
         }
-        .formStyle(.grouped)
     }
 
     private var about: some View {
@@ -1034,38 +829,10 @@ struct PreferencesView: View {
         )
     }
 
-    private func bindTB(_ keyPath: WritableKeyPath<TitlebarGestureConfig, Bool>) -> Binding<Bool> {
-        Binding(
-            get: { store.config.titlebarGestures[keyPath: keyPath] },
-            set: { v in store.update { $0.titlebarGestures[keyPath: keyPath] = v } }
-        )
-    }
-
-    private func bindDock(_ keyPath: WritableKeyPath<DockGestureConfig, Bool>) -> Binding<Bool> {
-        Binding(
-            get: { store.config.dockGestures[keyPath: keyPath] },
-            set: { v in store.update { $0.dockGestures[keyPath: keyPath] = v } }
-        )
-    }
-
-    private func bindMB(_ keyPath: WritableKeyPath<MenubarGestureConfig, Bool>) -> Binding<Bool> {
-        Binding(
-            get: { store.config.menubarGestures[keyPath: keyPath] },
-            set: { v in store.update { $0.menubarGestures[keyPath: keyPath] = v } }
-        )
-    }
-
     private func bindKB(_ keyPath: WritableKeyPath<KeyboardConfig, Bool>) -> Binding<Bool> {
         Binding(
             get: { store.config.keyboard[keyPath: keyPath] },
             set: { v in store.update { $0.keyboard[keyPath: keyPath] = v } }
-        )
-    }
-
-    private func bindTrackpad(_ keyPath: WritableKeyPath<TrackpadConfig, Bool>) -> Binding<Bool> {
-        Binding(
-            get: { store.config.trackpad[keyPath: keyPath] },
-            set: { v in store.update { $0.trackpad[keyPath: keyPath] = v } }
         )
     }
 

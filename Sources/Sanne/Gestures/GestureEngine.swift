@@ -51,7 +51,7 @@ final class GestureEngine: @unchecked Sendable {
         isMagicMousePaused = magicMousePaused ?? paused
 
         MagicMouseTapController.shared.start(
-            config: { config().magicMouseTaps },
+            config: config,
             paused: { GestureEngine.shared.isMagicMousePaused() },
             onEvent: { event in
                 Task { @MainActor in
