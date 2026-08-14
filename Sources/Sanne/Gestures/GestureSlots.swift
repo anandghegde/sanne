@@ -75,6 +75,8 @@ enum GestureSlots {
         /// When true, action cannot be remapped (only enable/disable).
         let actionFixed: Bool
         var visibility: Visibility = .advanced
+        /// Sanne Standard default when no override exists. Off-by-default slots set this false.
+        var defaultEnabled: Bool = true
 
         var defaultActionTitle: String {
             ActionCatalog.title(for: defaultActionId)
@@ -177,20 +179,20 @@ enum GestureSlots {
         .init(id: ID.mm2fSwipeDown, group: .magicMouse, title: "2-finger swipe down", detail: "",
               defaultActionId: ActionCatalog.ID.appExpose, legacyGate: .mmTwoFingerSwipeDown, actionFixed: false),
         .init(id: ID.mm2fSwipeLeft, group: .magicMouse, title: "2-finger swipe left", detail: "Spaces (off by default)",
-              defaultActionId: ActionCatalog.ID.spaceLeft, legacyGate: .mmTwoFingerSpaces, actionFixed: false),
+              defaultActionId: ActionCatalog.ID.spaceLeft, legacyGate: .mmTwoFingerSpaces, actionFixed: false, defaultEnabled: false),
         .init(id: ID.mm2fSwipeRight, group: .magicMouse, title: "2-finger swipe right", detail: "Spaces (off by default)",
-              defaultActionId: ActionCatalog.ID.spaceRight, legacyGate: .mmTwoFingerSpaces, actionFixed: false),
+              defaultActionId: ActionCatalog.ID.spaceRight, legacyGate: .mmTwoFingerSpaces, actionFixed: false, defaultEnabled: false),
         // 3-finger swipes share the chord with the 3-finger middle-click above; travel decides
         // which fires. Tabs on L/R follows the same spatial mapping as the free-space 4-finger
         // swipes and tip-tap (tap/swipe left → go left) rather than content-follows-finger.
         .init(id: ID.mm3fSwipeLeft, group: .magicMouse, title: "3-finger swipe left", detail: "Previous tab (off by default)",
-              defaultActionId: ActionCatalog.ID.browserPrevTab, legacyGate: .mmThreeFingerSwipes, actionFixed: false),
+              defaultActionId: ActionCatalog.ID.browserPrevTab, legacyGate: .mmThreeFingerSwipes, actionFixed: false, defaultEnabled: false),
         .init(id: ID.mm3fSwipeRight, group: .magicMouse, title: "3-finger swipe right", detail: "Next tab (off by default)",
-              defaultActionId: ActionCatalog.ID.browserNextTab, legacyGate: .mmThreeFingerSwipes, actionFixed: false),
+              defaultActionId: ActionCatalog.ID.browserNextTab, legacyGate: .mmThreeFingerSwipes, actionFixed: false, defaultEnabled: false),
         .init(id: ID.mm3fSwipeUp, group: .magicMouse, title: "3-finger swipe up", detail: "Mission Control (off by default)",
-              defaultActionId: ActionCatalog.ID.missionControl, legacyGate: .mmThreeFingerSwipes, actionFixed: false),
+              defaultActionId: ActionCatalog.ID.missionControl, legacyGate: .mmThreeFingerSwipes, actionFixed: false, defaultEnabled: false),
         .init(id: ID.mm3fSwipeDown, group: .magicMouse, title: "3-finger swipe down", detail: "App Exposé (off by default)",
-              defaultActionId: ActionCatalog.ID.appExpose, legacyGate: .mmThreeFingerSwipes, actionFixed: false),
+              defaultActionId: ActionCatalog.ID.appExpose, legacyGate: .mmThreeFingerSwipes, actionFixed: false, defaultEnabled: false),
         .init(id: ID.mm2fTopEdgeMove, group: .magicMouse, title: "2-finger top-edge drag", detail: "Move window under cursor",
               defaultActionId: ActionCatalog.ID.moveWindow, legacyGate: .mmTwoFingerTopEdgeMove, actionFixed: true),
         .init(id: ID.mm3fTopEdgeResize, group: .magicMouse, title: "3-finger top-edge drag", detail: "Resize window under cursor",
@@ -236,7 +238,7 @@ enum GestureSlots {
         .init(id: ID.dockPinchOut, group: .dock, title: "Pinch out", detail: "On Dock icon",
               defaultActionId: ActionCatalog.ID.dockNewWindow, legacyGate: .dockNew, actionFixed: false, visibility: .simple),
         .init(id: ID.dockPinchIn, group: .dock, title: "Pinch in", detail: "On Dock icon (off by default)",
-              defaultActionId: ActionCatalog.ID.dockQuit, legacyGate: .dockQuit, actionFixed: false),
+              defaultActionId: ActionCatalog.ID.dockQuit, legacyGate: .dockQuit, actionFixed: false, defaultEnabled: false),
 
         // Menubar
         .init(id: ID.mbLeft, group: .menubar, title: "Swipe left", detail: "Menu bar band",
@@ -258,33 +260,33 @@ enum GestureSlots {
         // Same natural direction as the Magic Mouse page swipes above: content follows the
         // fingers, so moving left reveals the next page (forward).
         .init(id: ID.free3SwipeLeft, group: .trackpad, title: "3-finger swipe left", detail: "Forward (off by default)",
-              defaultActionId: ActionCatalog.ID.browserForward, legacyGate: .trackpadFreeThreeSwipe, actionFixed: false),
+              defaultActionId: ActionCatalog.ID.browserForward, legacyGate: .trackpadFreeThreeSwipe, actionFixed: false, defaultEnabled: false),
         .init(id: ID.free3SwipeRight, group: .trackpad, title: "3-finger swipe right", detail: "Back (off by default)",
-              defaultActionId: ActionCatalog.ID.browserBack, legacyGate: .trackpadFreeThreeSwipe, actionFixed: false),
+              defaultActionId: ActionCatalog.ID.browserBack, legacyGate: .trackpadFreeThreeSwipe, actionFixed: false, defaultEnabled: false),
         .init(id: ID.free3SwipeUp, group: .trackpad, title: "3-finger swipe up", detail: "Free space (off by default)",
-              defaultActionId: ActionCatalog.ID.snapMaximize, legacyGate: .trackpadFreeThreeSwipe, actionFixed: false),
+              defaultActionId: ActionCatalog.ID.snapMaximize, legacyGate: .trackpadFreeThreeSwipe, actionFixed: false, defaultEnabled: false),
         .init(id: ID.free3SwipeDown, group: .trackpad, title: "3-finger swipe down", detail: "Free space (off by default)",
-              defaultActionId: ActionCatalog.ID.minimize, legacyGate: .trackpadFreeThreeSwipe, actionFixed: false),
+              defaultActionId: ActionCatalog.ID.minimize, legacyGate: .trackpadFreeThreeSwipe, actionFixed: false, defaultEnabled: false),
 
         // Free trackpad — 4-finger swipes (off by default; macOS also uses these).
         .init(id: ID.free4SwipeLeft, group: .trackpad, title: "4-finger swipe left", detail: "Free space (off by default)",
-              defaultActionId: ActionCatalog.ID.browserPrevTab, legacyGate: .trackpadFreeFourSwipe, actionFixed: false),
+              defaultActionId: ActionCatalog.ID.browserPrevTab, legacyGate: .trackpadFreeFourSwipe, actionFixed: false, defaultEnabled: false),
         .init(id: ID.free4SwipeRight, group: .trackpad, title: "4-finger swipe right", detail: "Free space (off by default)",
-              defaultActionId: ActionCatalog.ID.browserNextTab, legacyGate: .trackpadFreeFourSwipe, actionFixed: false),
+              defaultActionId: ActionCatalog.ID.browserNextTab, legacyGate: .trackpadFreeFourSwipe, actionFixed: false, defaultEnabled: false),
         .init(id: ID.free4SwipeUp, group: .trackpad, title: "4-finger swipe up", detail: "Free space (off by default)",
-              defaultActionId: ActionCatalog.ID.missionControl, legacyGate: .trackpadFreeFourSwipe, actionFixed: false),
+              defaultActionId: ActionCatalog.ID.missionControl, legacyGate: .trackpadFreeFourSwipe, actionFixed: false, defaultEnabled: false),
         .init(id: ID.free4SwipeDown, group: .trackpad, title: "4-finger swipe down", detail: "Free space (off by default)",
-              defaultActionId: ActionCatalog.ID.appExpose, legacyGate: .trackpadFreeFourSwipe, actionFixed: false),
+              defaultActionId: ActionCatalog.ID.appExpose, legacyGate: .trackpadFreeFourSwipe, actionFixed: false, defaultEnabled: false),
         .init(id: ID.free4Tap, group: .trackpad, title: "4-finger tap", detail: "Free space (off by default)",
-              defaultActionId: ActionCatalog.ID.keySpotlight, legacyGate: .trackpadFreeFourTap, actionFixed: false),
+              defaultActionId: ActionCatalog.ID.keySpotlight, legacyGate: .trackpadFreeFourTap, actionFixed: false, defaultEnabled: false),
 
         // Free trackpad — tip-tap (hold one finger, tap a second beside it). Positional, not
         // directional, so the side maps straight through: tap left → go left. Defaults to tabs
         // rather than history so it does not duplicate the 3-finger swipe defaults above.
         .init(id: ID.tipTapLeft, group: .trackpad, title: "Tip-tap left", detail: "Hold a finger, tap to its left (off by default)",
-              defaultActionId: ActionCatalog.ID.browserPrevTab, legacyGate: .trackpadTipTap, actionFixed: false),
+              defaultActionId: ActionCatalog.ID.browserPrevTab, legacyGate: .trackpadTipTap, actionFixed: false, defaultEnabled: false),
         .init(id: ID.tipTapRight, group: .trackpad, title: "Tip-tap right", detail: "Hold a finger, tap to its right (off by default)",
-              defaultActionId: ActionCatalog.ID.browserNextTab, legacyGate: .trackpadTipTap, actionFixed: false),
+              defaultActionId: ActionCatalog.ID.browserNextTab, legacyGate: .trackpadTipTap, actionFixed: false, defaultEnabled: false),
 
         // Keyboard — ⌃⌥ chord. ↓ restores (titlebar ↓ stays minimize). Repeat ←/→ still
         // cycles thirds when that Keyboard page option is on.
@@ -404,6 +406,8 @@ enum GestureSlots {
         }
     }
 
+    static func defaultEnabled(for slot: Slot) -> Bool { slot.defaultEnabled }
+
     static func defaultEnabled(for gate: LegacyGate) -> Bool {
         switch gate {
         case .mmTwoFingerSpaces, .mmThreeFingerSwipes, .dockQuit,
@@ -461,109 +465,6 @@ enum GestureSlots {
         case .trackpadTipTap: return config.trackpad.tipTap
         case .keyboardSnap: return config.keyboard.snapWithArrows
         case .keyboardDisplay: return config.keyboard.moveToAdjacentDisplay
-        }
-    }
-}
-
-// MARK: - Binding resolution
-
-struct ResolvedGesture {
-    let slotId: String
-    let enabled: Bool
-    let actionId: String
-    let isModified: Bool
-    let actionFixed: Bool
-}
-
-/// What the live recognizer consults before emitting.
-enum LegacyRecognition {
-    static func wouldEmit(slotId: String, config: SanneConfig) -> Bool {
-        BindingResolver.resolve(slotId: slotId, config: config)?.enabled ?? false
-    }
-}
-
-enum BindingResolver {
-    /// Effective binding for a slot. Three layers, highest priority first:
-    ///
-    /// 1. `appGestureOverrides[frontmostBundleId]` — what the frontmost app asks for
-    /// 2. `gestureOverrides` — the user's global remap
-    /// 3. the slot's Sanne Standard default, enabled per its legacy section toggle
-    ///
-    /// `frontmostBundleId` defaults to nil because every caller that wants the app-independent
-    /// picture (device pages, All bindings, the cheat sheet) wants layer 1 skipped entirely.
-    static func resolve(
-        slotId: String,
-        config: SanneConfig,
-        frontmostBundleId: String? = nil
-    ) -> ResolvedGesture? {
-        guard let slot = GestureSlots.slot(id: slotId) else { return nil }
-
-        // Layers 1 and 2 collapse into a single entry up front, so everything below reads as one
-        // question — "what did the user ask for here?" — regardless of how many layers said it.
-        let global = config.gestureOverrides[slotId]
-        let app = frontmostBundleId.flatMap { config.appGestureOverrides[$0]?[slotId] }
-        let override = app?.layered(over: global) ?? global ?? GestureOverrideEntry()
-
-        let actionId = slot.actionFixed
-            ? slot.defaultActionId
-            : (override.effectiveActionId ?? slot.defaultActionId)
-        // Only an explicit `enabled` beats the preset / Standard default.
-        let enabled = override.enabled ?? SannePreset.slotEnabled(slot, config: config)
-        let isModified = actionId != slot.defaultActionId || override.enabled != nil
-
-        // The group's master switch outranks all three layers, so a per-app row can't revive a
-        // subsystem the user switched off wholesale.
-        guard GestureSlots.masterEnabled(group: slot.group, config: config) else {
-            return ResolvedGesture(
-                slotId: slotId,
-                enabled: false,
-                actionId: slot.defaultActionId,
-                isModified: isModified,
-                actionFixed: slot.actionFixed
-            )
-        }
-
-        return ResolvedGesture(
-            slotId: slotId,
-            enabled: enabled,
-            actionId: actionId,
-            isModified: isModified,
-            actionFixed: slot.actionFixed
-        )
-    }
-
-    static func isModified(slotId: String, config: SanneConfig, frontmostBundleId: String? = nil) -> Bool {
-        resolve(slotId: slotId, config: config, frontmostBundleId: frontmostBundleId)?.isModified ?? false
-    }
-
-    static func modifiedCount(config: SanneConfig, frontmostBundleId: String? = nil) -> Int {
-        GestureSlots.all
-            .filter { isModified(slotId: $0.id, config: config, frontmostBundleId: frontmostBundleId) }
-            .count
-    }
-
-    /// Whether `scope` *itself* customises this slot — the question an editor's Modified badge and
-    /// its per-row Reset ask, since a row can only reset what its own layer stored.
-    ///
-    /// For `.global` that means "differs from Sanne Standard". For `.app` it means "differs from what
-    /// this gesture does everywhere else", so the app sheet doesn't badge rows the user only
-    /// customised globally.
-    static func isCustomized(slotId: String, config: SanneConfig, scope: GestureBindingScope) -> Bool {
-        switch scope {
-        case .global:
-            return isModified(slotId: slotId, config: config)
-        case .app:
-            // Safe as a presence test: `setGestureOverride` prunes entries that store nothing.
-            return config.gestureOverride(slotId: slotId, scope: scope) != nil
-        }
-    }
-
-    static func customizedCount(config: SanneConfig, scope: GestureBindingScope) -> Int {
-        switch scope {
-        case .global:
-            return modifiedCount(config: config)
-        case .app(let bundleId):
-            return config.appGestureOverrides[bundleId]?.count ?? 0
         }
     }
 }

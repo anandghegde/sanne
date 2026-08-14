@@ -95,7 +95,7 @@ struct SanneConfig: Codable, Equatable {
         for slot in GestureSlots.all {
             if gestureOverrides[slot.id]?.enabled != nil { continue }
             let legacy = GestureSlots.legacyEnabled(slot.legacyGate, config: self)
-            let fallback = GestureSlots.defaultEnabled(for: slot.legacyGate)
+            let fallback = slot.defaultEnabled
             guard legacy != fallback else { continue }
             var entry = gestureOverrides[slot.id] ?? GestureOverrideEntry()
             entry.enabled = legacy
@@ -106,6 +106,13 @@ struct SanneConfig: Codable, Equatable {
 }
 
 struct MagicMouseTapConfig: Codable, Equatable {
+    enum CodingKeys: String, CodingKey {
+        case enabled, leftTap, rightTap, middleTwoFinger, middleThreeFinger, tapDrag, multiClick
+        case twoFingerDoubleTapMissionControl, twoFingerSwipeUpMissionControl
+        case twoFingerSwipeDownAppExpose, twoFingerSwipeSpaces, threeFingerSwipes
+        case twoFingerTopEdgeMove, oneFingerSwipePages, leftRightSplit, deadZone, sensitivity, gamingMode
+    }
+
     var enabled: Bool = true
     var leftTap: Bool = true
     var rightTap: Bool = true
@@ -164,9 +171,24 @@ struct MagicMouseTapConfig: Codable, Equatable {
         sensitivity = try c.decodeIfPresent(Int.self, forKey: .sensitivity) ?? 0
         gamingMode = try c.decodeIfPresent(Bool.self, forKey: .gamingMode) ?? false
     }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(enabled, forKey: .enabled)
+        try c.encode(multiClick, forKey: .multiClick)
+        try c.encode(leftRightSplit, forKey: .leftRightSplit)
+        try c.encode(deadZone, forKey: .deadZone)
+        try c.encode(sensitivity, forKey: .sensitivity)
+        try c.encode(gamingMode, forKey: .gamingMode)
+    }
 }
 
 struct TitlebarGestureConfig: Codable, Equatable {
+    enum CodingKeys: String, CodingKey {
+        case enabled, swipeHalves, swipeQuarters, swipeThirds, swipeMaximize, swipeMinimize
+        case pinchClose, pinchFullscreen, threeFingerMoveDisplay
+    }
+
     var enabled: Bool = true
     var swipeHalves: Bool = true
     var swipeQuarters: Bool = true
@@ -193,9 +215,18 @@ struct TitlebarGestureConfig: Codable, Equatable {
         pinchFullscreen = try c.decodeIfPresent(Bool.self, forKey: .pinchFullscreen) ?? true
         threeFingerMoveDisplay = try c.decodeIfPresent(Bool.self, forKey: .threeFingerMoveDisplay) ?? true
     }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(enabled, forKey: .enabled)
+    }
 }
 
 struct DockGestureConfig: Codable, Equatable {
+    enum CodingKeys: String, CodingKey {
+        case enabled, swipeActivate, swipeHide, pinchNewWindow, pinchQuit
+    }
+
     var enabled: Bool = true
     /// Swipe up on Dock icon → activate / unhide / unminimize app.
     var swipeActivate: Bool = true
@@ -216,9 +247,18 @@ struct DockGestureConfig: Codable, Equatable {
         pinchNewWindow = try c.decodeIfPresent(Bool.self, forKey: .pinchNewWindow) ?? true
         pinchQuit = try c.decodeIfPresent(Bool.self, forKey: .pinchQuit) ?? false
     }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(enabled, forKey: .enabled)
+    }
 }
 
 struct MenubarGestureConfig: Codable, Equatable {
+    enum CodingKeys: String, CodingKey {
+        case enabled, swipeCycleWindows, swipeHideOthers, swipeUnminimize
+    }
+
     var enabled: Bool = true
     /// Swipe L/R → previous / next window (⌘` / ⌘⇧`).
     var swipeCycleWindows: Bool = true
@@ -236,9 +276,19 @@ struct MenubarGestureConfig: Codable, Equatable {
         swipeHideOthers = try c.decodeIfPresent(Bool.self, forKey: .swipeHideOthers) ?? true
         swipeUnminimize = try c.decodeIfPresent(Bool.self, forKey: .swipeUnminimize) ?? true
     }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(enabled, forKey: .enabled)
+    }
 }
 
 struct TrackpadConfig: Codable, Equatable {
+    enum CodingKeys: String, CodingKey {
+        case threeFingerTapMiddleClick, threeFingerDrag, threeFingerSwipes
+        case fourFingerSwipes, fourFingerTap, tipTap, sensitivity
+    }
+
     var threeFingerTapMiddleClick: Bool = true
     /// 3-finger drag in free space → left-button drag (text select, file move).
     /// Same idea as macOS Accessibility “Three Finger Drag” / BTT.
@@ -267,6 +317,11 @@ struct TrackpadConfig: Codable, Equatable {
         fourFingerTap = try c.decodeIfPresent(Bool.self, forKey: .fourFingerTap) ?? false
         tipTap = try c.decodeIfPresent(Bool.self, forKey: .tipTap) ?? false
         sensitivity = try c.decodeIfPresent(Int.self, forKey: .sensitivity) ?? 0
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(sensitivity, forKey: .sensitivity)
     }
 }
 
@@ -307,6 +362,10 @@ struct HUDConfig: Codable, Equatable {
 
 /// Global keyboard window snapping (⌃⌥ chord — never bare arrows).
 struct KeyboardConfig: Codable, Equatable {
+    enum CodingKeys: String, CodingKey {
+        case enabled, snapWithArrows, cycleThirds, moveToAdjacentDisplay
+    }
+
     var enabled: Bool = true
     /// ⌃⌥ + ←/→ cycle left/right layouts; ↑ maximize; ↓ restore; ↩ center.
     var snapWithArrows: Bool = true
@@ -323,6 +382,12 @@ struct KeyboardConfig: Codable, Equatable {
         snapWithArrows = try c.decodeIfPresent(Bool.self, forKey: .snapWithArrows) ?? true
         cycleThirds = try c.decodeIfPresent(Bool.self, forKey: .cycleThirds) ?? true
         moveToAdjacentDisplay = try c.decodeIfPresent(Bool.self, forKey: .moveToAdjacentDisplay) ?? true
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(enabled, forKey: .enabled)
+        try c.encode(cycleThirds, forKey: .cycleThirds)
     }
 }
 

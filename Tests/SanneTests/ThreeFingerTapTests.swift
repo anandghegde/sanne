@@ -21,7 +21,7 @@ final class ThreeFingerTapTests: XCTestCase {
         XCTAssertNotEqual(mid, .tap)
 
         let lift = TouchFrame(
-            timestamp: t0.addingTimeInterval(0.08),
+            timestamp: t0.addingTimeInterval(0.08).timeIntervalSinceReferenceDate,
             deviceID: 1,
             deviceKind: .builtInTrackpad,
             touches: []
@@ -41,7 +41,7 @@ final class ThreeFingerTapTests: XCTestCase {
         _ = rec.process(frame: frame(at: t0, points: pts), sensitivity: 0)
         _ = rec.process(frame: frame(at: t0.addingTimeInterval(0.05), points: pts), sensitivity: 0)
         let lift = TouchFrame(
-            timestamp: t0.addingTimeInterval(0.08),
+            timestamp: t0.addingTimeInterval(0.08).timeIntervalSinceReferenceDate,
             deviceID: 1,
             deviceKind: .builtInTrackpad,
             touches: []
@@ -68,7 +68,7 @@ final class ThreeFingerTapTests: XCTestCase {
         XCTAssertNotEqual(mid, .tap)
 
         let lift = TouchFrame(
-            timestamp: t0.addingTimeInterval(0.08),
+            timestamp: t0.addingTimeInterval(0.08).timeIntervalSinceReferenceDate,
             deviceID: 1,
             deviceKind: .builtInTrackpad,
             touches: []
@@ -82,7 +82,7 @@ final class ThreeFingerTapTests: XCTestCase {
 
     private func frame(at time: Date, points: [CGPoint]) -> TouchFrame {
         TouchFrame(
-            timestamp: time,
+            timestamp: time.timeIntervalSinceReferenceDate,
             deviceID: 1,
             deviceKind: .builtInTrackpad,
             touches: points.enumerated().map { i, p in

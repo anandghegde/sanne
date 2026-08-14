@@ -91,7 +91,7 @@ final class WindowMover {
                 next.size.height = max(80, startFrameAX.height + dY)
             }
         }
-        _ = WindowManager.shared.setFrame(window, next)
+        _ = WindowManager.shared.setFrame(window, next, mode: .live)
     }
 
     func end() {

@@ -31,7 +31,7 @@ final class ThreeFingerDragRecognizer: @unchecked Sendable {
     private var startCentroid: CGPoint = .zero
     private var lastCentroid: CGPoint = .zero
     private var cursor: CGPoint = .zero
-    private var sessionStart: Date?
+    private var sessionStart: TimeInterval?
     private var maxTravel: CGFloat = 0
     private var peakFingers = 0
     private let lock = NSLock()
@@ -112,7 +112,7 @@ final class ThreeFingerDragRecognizer: @unchecked Sendable {
 
     // MARK: - Private
 
-    private func finishUnlocked(now: Date) -> Outcome {
+    private func finishUnlocked(now: TimeInterval) -> Outcome {
         switch phase {
         case .idle:
             return .none
@@ -124,7 +124,7 @@ final class ThreeFingerDragRecognizer: @unchecked Sendable {
             return .dragEnded(at: end)
 
         case .tracking:
-            let duration = now.timeIntervalSince(sessionStart ?? now)
+            let duration = now - (sessionStart ?? now)
             let travel = maxTravel
             let wasTap = peakFingers >= 3
                 && travel < Self.commitTravel

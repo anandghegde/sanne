@@ -9,7 +9,7 @@ enum TouchFrameFixtures {
         touches: [(id: Int, x: CGFloat, y: CGFloat, phase: TouchPhase)]
     ) -> TouchFrame {
         TouchFrame(
-            timestamp: time,
+            timestamp: time.timeIntervalSinceReferenceDate,
             deviceID: 1,
             deviceKind: .builtInTrackpad,
             touches: touches.map { t in

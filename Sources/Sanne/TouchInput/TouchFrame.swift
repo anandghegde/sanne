@@ -58,6 +58,9 @@ struct TouchPoint: Equatable {
     var minorAxis: Float
     var state: Int
     var phase: TouchPhase
+    var size: Float = 0
+    var velX: Float = 0
+    var velY: Float = 0
 }
 
 enum TouchPhase: Equatable {
@@ -69,7 +72,8 @@ enum TouchPhase: Equatable {
 }
 
 struct TouchFrame: Equatable {
-    var timestamp: Date
+    /// Host time (`CFAbsoluteTimeGetCurrent()`), not `Date`.
+    var timestamp: TimeInterval
     var deviceID: Int64
     var deviceKind: DeviceKind
     var touches: [TouchPoint]

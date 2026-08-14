@@ -6,19 +6,19 @@ struct PhysicalClickGuard: Equatable {
     static let syntheticEchoIgnore: TimeInterval = 0.06
 
     var physicalClickDuringContact = false
-    var lastPhysicalClickTime: Date?
-    var ignorePhysicalEchoUntil: Date?
+    var lastPhysicalClickTime: TimeInterval?
+    var ignorePhysicalEchoUntil: TimeInterval?
 
-    mutating func armSyntheticEcho(now: Date = Date()) {
-        ignorePhysicalEchoUntil = now.addingTimeInterval(Self.syntheticEchoIgnore)
+    mutating func armSyntheticEcho(now: TimeInterval = CFAbsoluteTimeGetCurrent()) {
+        ignorePhysicalEchoUntil = now + Self.syntheticEchoIgnore
     }
 
-    func shouldIgnoreEcho(now: Date = Date()) -> Bool {
+    func shouldIgnoreEcho(now: TimeInterval = CFAbsoluteTimeGetCurrent()) -> Bool {
         guard let until = ignorePhysicalEchoUntil else { return false }
         return now < until
     }
 
-    mutating func notePhysicalClick(now: Date = Date()) {
+    mutating func notePhysicalClick(now: TimeInterval = CFAbsoluteTimeGetCurrent()) {
         physicalClickDuringContact = true
         lastPhysicalClickTime = now
     }
@@ -27,9 +27,9 @@ struct PhysicalClickGuard: Equatable {
         physicalClickDuringContact = false
     }
 
-    func shouldSuppress(now: Date = Date()) -> Bool {
+    func shouldSuppress(now: TimeInterval = CFAbsoluteTimeGetCurrent()) -> Bool {
         if physicalClickDuringContact { return true }
-        if let t = lastPhysicalClickTime, now.timeIntervalSince(t) < Self.suppressWindow {
+        if let t = lastPhysicalClickTime, now - t < Self.suppressWindow {
             return true
         }
         return false

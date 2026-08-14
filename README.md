@@ -103,29 +103,13 @@ Sources/Sanne/
   Utilities/
 ```
 
-## Progress
-
-**Living plan + status:** [PROGRESS.md](./PROGRESS.md)
-
-| Phase | Status |
-|-------|--------|
-| 0 Feasibility | Done |
-| 1 MVP | In progress (~93%) — MM taps verified; windowing; remap editor |
-| 2 v1.0 | In progress — tutorial, remap, custom keystroke/open app; DMG packaging ready |
-| 3+ | Started — custom scripts, per-app gesture bindings, action HUD |
-
 ## Docs
 
 | Document | Description |
 |----------|-------------|
-| [PROGRESS.md](./PROGRESS.md) | **Step-by-step plan + progress (start here)** |
-| [IMPROVEMENT_PLAN.md](./IMPROVEMENT_PLAN.md) | UX, feature, and maintainability plan (post-0.2.0) |
+| [PERFORMANCE_AND_REFACTOR_PLAN.md](./PERFORMANCE_AND_REFACTOR_PLAN.md) | Performance and refactor implementation plan |
 | [CHANGELOG.md](./CHANGELOG.md) | Release history |
 | [docs/RELEASING.md](./docs/RELEASING.md) | DMG, notarize, GitHub Release checklist |
-| [PRD.md](./PRD.md) | Product requirements |
-| [TECHNICAL_DESIGN.md](./TECHNICAL_DESIGN.md) | Architecture |
-| [MVP_SCOPE.md](./MVP_SCOPE.md) | Scope phases & non-goals |
-| [UX_WIREFRAMES.md](./UX_WIREFRAMES.md) | Settings / gesture maps |
 | [CONTRIBUTING.md](./CONTRIBUTING.md) | How to contribute |
 | [LICENSE](./LICENSE) | MIT |
 

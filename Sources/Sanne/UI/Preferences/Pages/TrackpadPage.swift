@@ -31,7 +31,8 @@ struct TrackpadPage: View {
                 }
             }
 
-            if store.config.trackpad.threeFingerSwipes, store.config.trackpad.threeFingerDrag {
+            if freeSpaceEnabled(GestureSlots.ID.free3SwipeLeft) || freeSpaceEnabled(GestureSlots.ID.free3SwipeRight),
+               freeSpaceEnabled(GestureSlots.ID.free3Drag) {
                 Section {
                     HStack(alignment: .top, spacing: 8) {
                         Image(systemName: "info.circle")
@@ -55,10 +56,22 @@ struct TrackpadPage: View {
         }
     }
 
+    private func freeSpaceEnabled(_ id: String) -> Bool {
+        BindingResolver.resolve(slotId: id, config: store.config)?.enabled == true
+    }
+
     private var trackpadSystemGestureConflict: Bool {
-        store.config.trackpad.threeFingerSwipes
-            || store.config.trackpad.fourFingerSwipes
-            || store.config.trackpad.fourFingerTap
+        [
+            GestureSlots.ID.free3SwipeLeft,
+            GestureSlots.ID.free3SwipeRight,
+            GestureSlots.ID.free3SwipeUp,
+            GestureSlots.ID.free3SwipeDown,
+            GestureSlots.ID.free4SwipeLeft,
+            GestureSlots.ID.free4SwipeRight,
+            GestureSlots.ID.free4SwipeUp,
+            GestureSlots.ID.free4SwipeDown,
+            GestureSlots.ID.free4Tap,
+        ].contains { freeSpaceEnabled($0) }
     }
 
     /// Registering with MultitouchSupport does not stop macOS from also handling free-space

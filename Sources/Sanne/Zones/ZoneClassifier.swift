@@ -33,8 +33,8 @@ enum ZoneClassifier {
         var cursor: AXUIElement? = element
         for _ in 0..<12 {
             guard let c = cursor else { break }
-            let role = attr(c, kAXRoleAttribute as String) ?? ""
-            let sub = attr(c, kAXSubroleAttribute as String) ?? ""
+            let role = AXQuery.stringAttr(c, kAXRoleAttribute as String) ?? ""
+            let sub = AXQuery.stringAttr(c, kAXSubroleAttribute as String) ?? ""
             if role == "AXTitleBar"
                 || sub == "AXCloseButton"
                 || sub == "AXMinimizeButton"
@@ -53,7 +53,7 @@ enum ZoneClassifier {
         }
 
         // Geometric strip
-        if let window = window(from: element), let frame = WindowManager.shared.frame(of: window) {
+        if let window = AXQuery.window(from: element), let frame = WindowManager.shared.frame(of: window) {
             let strip: CGFloat = 52
             let inX = ax.x >= frame.minX && ax.x <= frame.maxX
             let inY = ax.y >= frame.minY && ax.y <= frame.minY + strip
@@ -85,32 +85,5 @@ enum ZoneClassifier {
             return p.x > visible.maxX
         }
         return false
-    }
-
-    private static func window(from element: AXUIElement) -> AXUIElement? {
-        var winRef: CFTypeRef?
-        if AXUIElementCopyAttributeValue(element, kAXWindowAttribute as CFString, &winRef) == .success,
-           let winRef
-        {
-            return (winRef as! AXUIElement)
-        }
-        var cursor: AXUIElement? = element
-        for _ in 0..<10 {
-            guard let c = cursor else { break }
-            if attr(c, kAXRoleAttribute as String) == (kAXWindowRole as String) { return c }
-            var parent: CFTypeRef?
-            if AXUIElementCopyAttributeValue(c, kAXParentAttribute as CFString, &parent) == .success,
-               let parent
-            {
-                cursor = (parent as! AXUIElement)
-            } else { break }
-        }
-        return nil
-    }
-
-    private static func attr(_ el: AXUIElement, _ name: String) -> String? {
-        var ref: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(el, name as CFString, &ref) == .success else { return nil }
-        return ref as? String
     }
 }

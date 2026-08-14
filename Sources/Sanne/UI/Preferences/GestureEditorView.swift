@@ -565,9 +565,6 @@ struct GestureEditorView<Header: View>: View {
             var entry = cfg.gestureOverride(slotId: slotId, scope: scope) ?? GestureOverrideEntry()
             entry.enabled = enabled == inherited(slot, config: cfg).enabled ? nil : enabled
             cfg.setGestureOverride(slotId: slotId, entry: entry, scope: scope)
-            if enabled {
-                cfg.enableLegacyGate(slotId: slotId)
-            }
         }
     }
 
@@ -577,7 +574,6 @@ struct GestureEditorView<Header: View>: View {
             var entry = cfg.gestureOverride(slotId: slotId, scope: scope) ?? GestureOverrideEntry()
             entry.actionId = actionId == inherited(slot, config: cfg).actionId ? nil : actionId
             cfg.setGestureOverride(slotId: slotId, entry: entry, scope: scope)
-            cfg.enableLegacyGate(slotId: slotId)
         }
     }
 }

@@ -33,31 +33,31 @@ final class MagicMouseLogicTests: XCTestCase {
 
     func testScrollLockRearmExtends() {
         var lock = ScrollLock()
-        let t0 = Date()
+        let t0: TimeInterval = 1_000
         lock.arm(for: 0.20, now: t0)
         XCTAssertTrue(lock.isBlocked(contactStart: t0))
-        XCTAssertFalse(lock.isBlocked(contactStart: t0.addingTimeInterval(0.21)))
-        lock.rearmResidual(now: t0.addingTimeInterval(0.15))
-        XCTAssertTrue(lock.isBlocked(contactStart: t0.addingTimeInterval(0.30)))
-        XCTAssertFalse(lock.isBlocked(contactStart: t0.addingTimeInterval(0.56)))
+        XCTAssertFalse(lock.isBlocked(contactStart: t0 + 0.21))
+        lock.rearmResidual(now: t0 + 0.15)
+        XCTAssertTrue(lock.isBlocked(contactStart: t0 + 0.30))
+        XCTAssertFalse(lock.isBlocked(contactStart: t0 + 0.56))
     }
 
     func testPhysicalClickWindow() {
         var clickGuard = PhysicalClickGuard()
-        let t0 = Date()
+        let t0: TimeInterval = 1_000
         XCTAssertFalse(clickGuard.shouldSuppress(now: t0))
         clickGuard.notePhysicalClick(now: t0)
-        XCTAssertTrue(clickGuard.shouldSuppress(now: t0.addingTimeInterval(0.04)))
+        XCTAssertTrue(clickGuard.shouldSuppress(now: t0 + 0.04))
         clickGuard.clearContactFlag()
-        XCTAssertTrue(clickGuard.shouldSuppress(now: t0.addingTimeInterval(0.04)))
-        XCTAssertFalse(clickGuard.shouldSuppress(now: t0.addingTimeInterval(0.09)))
+        XCTAssertTrue(clickGuard.shouldSuppress(now: t0 + 0.04))
+        XCTAssertFalse(clickGuard.shouldSuppress(now: t0 + 0.09))
     }
 
     func testSyntheticEchoIgnore() {
         var clickGuard = PhysicalClickGuard()
-        let t0 = Date()
+        let t0: TimeInterval = 1_000
         clickGuard.armSyntheticEcho(now: t0)
-        XCTAssertTrue(clickGuard.shouldIgnoreEcho(now: t0.addingTimeInterval(0.03)))
-        XCTAssertFalse(clickGuard.shouldIgnoreEcho(now: t0.addingTimeInterval(0.07)))
+        XCTAssertTrue(clickGuard.shouldIgnoreEcho(now: t0 + 0.03))
+        XCTAssertFalse(clickGuard.shouldIgnoreEcho(now: t0 + 0.07))
     }
 }

@@ -7,7 +7,7 @@ Thanks for helping build a free, open-source gesture layer for macOS.
 - Sanne is **free forever** — no paid features, no license keys, no “pro” tier.
 - Keep changes focused. Match existing style. Prefer simple code.
 - Discuss large features in a GitHub Issue before a big PR.
-- Stay inside product scope ([PRD.md](./PRD.md), [MVP_SCOPE.md](./MVP_SCOPE.md)). We intentionally are **not** building a BetterTouchTool clone.
+- Stay inside product scope. We intentionally are **not** building a BetterTouchTool clone.
 
 ## Development
 

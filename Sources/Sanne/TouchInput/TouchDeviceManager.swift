@@ -2,29 +2,51 @@ import Foundation
 import IOKit
 import IOKit.hid
 
-/// Trackpad multitouch for titlebar gestures. Magic Mouse uses MagicMouseTapController.
+/// Single MultitouchSupport enumerator. Fans frames by `DeviceKind`.
 final class TouchDeviceManager: @unchecked Sendable {
     static let shared = TouchDeviceManager()
 
     private let pipeline = DispatchQueue(label: "app.sanne.touch.pipeline")
     private let lock = NSLock()
     private var retainedLists: [CFArray] = []
-    private var devices: [PrivateMT.DeviceRef] = []
+    private var trackpadDevices: [PrivateMT.DeviceRef] = []
+    private var mouseDevices: [PrivateMT.DeviceRef] = []
     private var started = false
     private var listeners: [UUID: (TouchFrame) -> Void] = [:]
     private var totalCallbacks = 0
     private var trackpadKind: DeviceKind = .builtInTrackpad
+    private var hidWatcher: HIDDeviceWatcher?
 
-    private static let callback: PrivateMT.ContactCallback = { device, touches, num, _, _ in
-        TouchDeviceManager.shared.handle(device: device, touches: touches, count: Int(num))
+    private static let trackpadCallback: PrivateMT.ContactCallback = { device, touches, num, _, _ in
+        TouchDeviceManager.shared.handleTrackpad(device: device, touches: touches, count: Int(num))
         return 0
     }
 
-    private func handle(device: Int32, touches: UnsafeMutableRawPointer?, count: Int) {
+    private static let mouseCallback: PrivateMT.ContactCallback = { device, touches, num, timestamp, frame in
+        TouchDeviceManager.shared.handleMouse(
+            device: device,
+            touches: touches,
+            count: Int(num),
+            timestamp: timestamp,
+            frame: frame
+        )
+        return 0
+    }
+
+    var pipelineQueue: DispatchQueue { pipeline }
+
+    var magicMouseDeviceCount: Int {
+        lock.lock(); defer { lock.unlock() }
+        return mouseDevices.count
+    }
+
+    private func handleTrackpad(device: Int32, touches: UnsafeMutableRawPointer?, count: Int) {
         lock.lock()
         totalCallbacks += 1
         let n = totalCallbacks
+        let kind = trackpadKind
         lock.unlock()
+        PerfCounters.incTrackpadCallbacks()
 
         var points: [TouchPoint] = []
         if let touches, count > 0 {
@@ -37,28 +59,41 @@ final class TouchDeviceManager: @unchecked Sendable {
                         majorAxis: t.majorAxis,
                         minorAxis: t.minorAxis,
                         state: Int(t.state),
-                        // Proximity/hover states (1/2/6/7) are not physical contact —
-                        // report them as ended so recognizers never see hovering fingers.
-                        phase: PrivateMT.isPhysicalContact(t.state) ? .moved : .ended
+                        phase: PrivateMT.isPhysicalContact(t.state) ? .moved : .ended,
+                        size: t.size,
+                        velX: t.velX,
+                        velY: t.velY
                     )
                 )
             }
         }
 
-        lock.lock()
-        let kind = trackpadKind
-        lock.unlock()
-
-        if n <= 15 {
+        if LogRing.shared.shouldLogTouchFrame() {
             Log.debug(.mt, "trackpad cb#\(n) dev=\(device) num=\(count) kind=\(kind.rawValue)")
         }
 
         emit(TouchFrame(
-            timestamp: Date(),
+            timestamp: CFAbsoluteTimeGetCurrent(),
             deviceID: Int64(device),
             deviceKind: kind,
             touches: points
         ))
+    }
+
+    private func handleMouse(
+        device: Int32,
+        touches: UnsafeMutableRawPointer?,
+        count: Int,
+        timestamp: Double,
+        frame: Int32
+    ) {
+        MagicMouseTapController.shared.handleRaw(
+            device: device,
+            touches: touches,
+            numTouches: count,
+            timestamp: timestamp,
+            frame: frame
+        )
     }
 
     @discardableResult
@@ -86,7 +121,7 @@ final class TouchDeviceManager: @unchecked Sendable {
     func start() -> Result<Int, Error> {
         lock.lock()
         defer { lock.unlock() }
-        if started { return .success(devices.count) }
+        if started { return .success(trackpadDevices.count) }
 
         guard PrivateMT.load() else {
             return .failure(TouchError.loadFailed(PrivateMT.loadError ?? "unknown"))
@@ -101,35 +136,48 @@ final class TouchDeviceManager: @unchecked Sendable {
             let classified = PrivateMT.classify(d)
             Log.info(
                 .touch,
-                "trackpad-path[\(i)] kind=\(classified.rawValue) builtIn=\(PrivateMT.deviceIsBuiltIn(d)) " +
+                "device[\(i)] kind=\(classified.rawValue) builtIn=\(PrivateMT.deviceIsBuiltIn(d)) " +
                 "opaque=\(PrivateMT.deviceIsOpaqueSurface(d)) force=\(PrivateMT.deviceSupportsForce(d))"
             )
-            // Only trackpads. Registering a Magic Mouse here would replace its tap callback.
-            guard TouchDeviceClassifier.isTrackpad(classified) else {
-                Log.info(.touch, "  skip \(classified.rawValue) (owned by MagicMouseTapController)")
-                continue
+            if TouchDeviceClassifier.isTrackpad(classified) {
+                if classified == .magicTrackpad { kind = .magicTrackpad }
+                trackpadDevices.append(d)
+                PrivateMT.register(d, Self.trackpadCallback)
+                PrivateMT.start(d)
+                Log.info(.touch, "  MONITORING trackpad")
+            } else if TouchDeviceClassifier.isMagicMouse(classified) {
+                mouseDevices.append(d)
+                PrivateMT.register(d, Self.mouseCallback)
+                PrivateMT.start(d)
+                Log.info(.touch, "  MONITORING Magic Mouse")
+            } else {
+                Log.info(.touch, "  skip \(classified.rawValue)")
             }
-            if classified == .magicTrackpad { kind = .magicTrackpad }
-            devices.append(d)
-            PrivateMT.register(d, Self.callback)
-            PrivateMT.start(d)
         }
         trackpadKind = kind
 
         started = true
-        Log.info(.touch, "TouchDeviceManager devices=\(devices.count)")
-        return .success(devices.count)
+        Log.info(
+            .touch,
+            "TouchDeviceManager trackpads=\(trackpadDevices.count) mice=\(mouseDevices.count)"
+        )
+        return .success(trackpadDevices.count)
     }
 
     func stop() {
         lock.lock()
         defer { lock.unlock() }
         guard started else { return }
-        for d in devices {
-            PrivateMT.unregister(d, Self.callback)
+        for d in trackpadDevices {
+            PrivateMT.unregister(d, Self.trackpadCallback)
             PrivateMT.stop(d)
         }
-        devices.removeAll()
+        for d in mouseDevices {
+            PrivateMT.unregister(d, Self.mouseCallback)
+            PrivateMT.stop(d)
+        }
+        trackpadDevices.removeAll()
+        mouseDevices.removeAll()
         retainedLists.removeAll()
         started = false
     }
@@ -147,7 +195,7 @@ final class TouchDeviceManager: @unchecked Sendable {
 
     var stats: String {
         lock.lock(); defer { lock.unlock() }
-        return "trackpadDev=\(devices.count) trackpadCb=\(totalCallbacks) \(MagicMouseTapController.shared.stats)"
+        return "trackpadDev=\(trackpadDevices.count) mouseDev=\(mouseDevices.count) trackpadCb=\(totalCallbacks) \(MagicMouseTapController.shared.stats)"
     }
 
     enum TouchError: LocalizedError {
@@ -208,5 +256,59 @@ enum IOKitHints {
             return nil
         }
         return (p as? NSNumber)?.intValue
+    }
+}
+
+/// IOKit first-match / terminate watcher for HID add/remove. Not used for callback registration.
+final class HIDDeviceWatcher {
+    private var port: IONotificationPortRef?
+    private var added: io_iterator_t = 0
+    private var removed: io_iterator_t = 0
+    private let onChange: () -> Void
+
+    init(onChange: @escaping () -> Void) {
+        self.onChange = onChange
+    }
+
+    func start() {
+        let notify = IONotificationPortCreate(kIOMainPortDefault)
+        port = notify
+        let source = IONotificationPortGetRunLoopSource(notify).takeUnretainedValue()
+        CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
+
+        let ctx = Unmanaged.passUnretained(self).toOpaque()
+        let matchingAdd = IOServiceMatching(kIOHIDDeviceKey)
+        let matchingRemove = IOServiceMatching(kIOHIDDeviceKey)
+
+        let addedCB: IOServiceMatchingCallback = { refcon, iterator in
+            HIDDeviceWatcher.drain(iterator)
+            Unmanaged<HIDDeviceWatcher>.fromOpaque(refcon!).takeUnretainedValue().onChange()
+        }
+        let removedCB: IOServiceMatchingCallback = { refcon, iterator in
+            HIDDeviceWatcher.drain(iterator)
+            Unmanaged<HIDDeviceWatcher>.fromOpaque(refcon!).takeUnretainedValue().onChange()
+        }
+
+        IOServiceAddMatchingNotification(notify, kIOFirstMatchNotification, matchingAdd, addedCB, ctx, &added)
+        IOServiceAddMatchingNotification(notify, kIOTerminatedNotification, matchingRemove, removedCB, ctx, &removed)
+        HIDDeviceWatcher.drain(added)
+        HIDDeviceWatcher.drain(removed)
+    }
+
+    func stop() {
+        if added != 0 { IOObjectRelease(added); added = 0 }
+        if removed != 0 { IOObjectRelease(removed); removed = 0 }
+        if let port {
+            IONotificationPortDestroy(port)
+            self.port = nil
+        }
+    }
+
+    private static func drain(_ iterator: io_iterator_t) {
+        var service = IOIteratorNext(iterator)
+        while service != 0 {
+            IOObjectRelease(service)
+            service = IOIteratorNext(iterator)
+        }
     }
 }

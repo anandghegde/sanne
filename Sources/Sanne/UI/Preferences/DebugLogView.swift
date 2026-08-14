@@ -3,6 +3,7 @@ import AppKit
 
 struct DebugLogView: View {
     @ObservedObject private var ring = LogRing.shared
+    @State private var counters = PerfCounters.snapshotLine()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -20,6 +21,18 @@ struct DebugLogView: View {
                 Button("Reveal in Finder") { reveal() }
             }
 
+            HStack(spacing: 10) {
+                Text(counters)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                Spacer()
+                Button("Reset") {
+                    PerfCounters.reset()
+                    counters = PerfCounters.snapshotLine()
+                }
+            }
+
             Text(ring.logFilePath)
                 .font(.caption2)
                 .textSelection(.enabled)
@@ -29,7 +42,7 @@ struct DebugLogView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 1) {
                         ForEach(ring.lines) { line in
-                            Text(line.formatted)
+                            Text(line.formatted(using: Self.uiFormatter))
                                 .font(.system(size: 11, design: .monospaced))
                                 .foregroundStyle(color(for: line.level))
                                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -52,7 +65,23 @@ struct DebugLogView: View {
             }
         }
         .padding(20)
+        .onAppear {
+            ring.addSubscriber()
+            counters = PerfCounters.snapshotLine()
+        }
+        .onDisappear {
+            ring.removeSubscriber()
+        }
+        .onReceive(Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()) { _ in
+            counters = PerfCounters.snapshotLine()
+        }
     }
+
+    private static let uiFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm:ss.SSS"
+        return f
+    }()
 
     private func color(for level: LogLevel) -> Color {
         switch level {
@@ -65,7 +94,7 @@ struct DebugLogView: View {
     }
 
     private func copyAll() {
-        let text = ring.lines.map(\.formatted).joined(separator: "\n")
+        let text = ring.lines.map { $0.formatted(using: Self.uiFormatter) }.joined(separator: "\n")
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
     }

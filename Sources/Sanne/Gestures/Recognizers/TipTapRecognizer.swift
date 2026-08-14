@@ -38,9 +38,9 @@ final class TipTapRecognizer: @unchecked Sendable {
     private var phase: Phase = .idle
     /// Snapshots taken at touch-down, so drift and travel measure from the landing point.
     private var anchor: TouchPoint?
-    private var anchorDown: Date?
+    private var anchorDown: TimeInterval?
     private var tapper: TouchPoint?
-    private var tapperDown: Date?
+    private var tapperDown: TimeInterval?
     private var tapperTravel: CGFloat = 0
     private let lock = NSLock()
 
@@ -104,7 +104,7 @@ final class TipTapRecognizer: @unchecked Sendable {
                 phase = .invalid
                 return .none
             }
-            if frame.timestamp.timeIntervalSince(anchorDown) >= Self.minAnchorHold {
+            if frame.timestamp - anchorDown >= Self.minAnchorHold {
                 phase = .armed
             }
             return .none
@@ -132,7 +132,7 @@ final class TipTapRecognizer: @unchecked Sendable {
                     tapperTravel,
                     Self.distance(tapper.normalized, current.normalized)
                 )
-                let tooSlow = frame.timestamp.timeIntervalSince(tapperDown) > Self.maxTapDuration * tolerance
+                let tooSlow = frame.timestamp - tapperDown > Self.maxTapDuration * tolerance
                 let tooFar = tapperTravel > Self.maxTapTravel * CGFloat(tolerance)
                 if tooSlow || tooFar {
                     // Drop back to `.armed`, never `.invalid`: the anchor is still resting, so
@@ -158,7 +158,7 @@ final class TipTapRecognizer: @unchecked Sendable {
             // Only the anchor is left, so the tap finished. Snapshot it, then return to
             // `.armed` — repeated taps against one held anchor should each fire, and a
             // rejected tap must not force the user to lift and start over.
-            let duration = frame.timestamp.timeIntervalSince(tapperDown)
+            let duration = frame.timestamp - tapperDown
             let travel = tapperTravel
             let offset = tapper.normalized.x - anchor.normalized.x
             clearTapperUnlocked()
@@ -222,7 +222,7 @@ final class TipTapRecognizer: @unchecked Sendable {
         return true
     }
 
-    private func startCandidateUnlocked(_ touch: TouchPoint, at time: Date) {
+    private func startCandidateUnlocked(_ touch: TouchPoint, at time: TimeInterval) {
         tapper = touch
         tapperDown = time
         tapperTravel = 0

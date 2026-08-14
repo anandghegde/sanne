@@ -5,9 +5,21 @@ final class SnapPreviewController {
     static let shared = SnapPreviewController()
 
     private var window: NSWindow?
+    private var lastAppKitFrame: CGRect?
+    private var isShowing = false
 
     func show(axFrame: CGRect) {
         let appKit = LayoutGeometry.axToAppKit(axFrame)
+        if isShowing, let last = lastAppKitFrame,
+           abs(last.minX - appKit.minX) < 1,
+           abs(last.minY - appKit.minY) < 1,
+           abs(last.width - appKit.width) < 1,
+           abs(last.height - appKit.height) < 1
+        {
+            return
+        }
+        lastAppKitFrame = appKit
+        isShowing = true
         if window == nil {
             let w = NSWindow(
                 contentRect: appKit,
@@ -31,6 +43,8 @@ final class SnapPreviewController {
     }
 
     func hide() {
+        isShowing = false
+        lastAppKitFrame = nil
         window?.orderOut(nil)
     }
 }

@@ -48,210 +48,23 @@ enum ActionRunner {
             } else if !ok {
                 errorTitle = "No window"
             }
+        } else if let windowResult = runWindow(actionId, context) {
+            ok = windowResult.ok
+            hudTitle = windowResult.hudTitle
+            errorTitle = windowResult.errorTitle
+        } else if let inputResult = runInput(actionId, context) {
+            ok = inputResult.ok
+            hudTitle = inputResult.hudTitle
+            errorTitle = inputResult.errorTitle
+        } else if let systemResult = runSystem(actionId, context) {
+            ok = systemResult.ok
+            hudTitle = systemResult.hudTitle
+            errorTitle = systemResult.errorTitle
         } else {
-        switch actionId {
-        case ActionCatalog.ID.restore:
-            if let w = context.window {
-                ok = WindowManager.shared.restoreFrame(of: w)
-            } else {
-                ok = WindowManager.shared.restoreFocused()
-            }
-            if ok {
-                hudTitle = "Restore"
-            } else {
-                errorTitle = "No window"
-            }
-        case ActionCatalog.ID.minimize:
-            if let w = context.window {
-                ok = WindowManager.shared.minimize(w)
-            } else {
-                ok = WindowManager.shared.minimizeUnderCursor()
-            }
-            if !ok { errorTitle = "No window" }
-
-        case ActionCatalog.ID.close:
-            if let w = context.window {
-                ok = WindowManager.shared.close(w)
-            } else {
-                ok = WindowManager.shared.closeUnderCursor()
-            }
-            if !ok { errorTitle = "No window" }
-
-        case ActionCatalog.ID.fullscreen:
-            if let w = context.window {
-                ok = WindowManager.shared.fullscreen(w)
-            } else {
-                ok = WindowManager.shared.fullscreenUnderCursor()
-            }
-            if !ok { errorTitle = "No window" }
-
-        case ActionCatalog.ID.moveDisplayLeft:
-            ok = moveDisplay(-1, context)
-        case ActionCatalog.ID.moveDisplayRight:
-            ok = moveDisplay(1, context)
-
-        case ActionCatalog.ID.moveSpaceLeft:
-            let result = moveSpace(-1, context)
-            ok = result.ok
-            if !ok { errorTitle = result.error }
-        case ActionCatalog.ID.moveSpaceRight:
-            let result = moveSpace(1, context)
-            ok = result.ok
-            if !ok { errorTitle = result.error }
-
-        case ActionCatalog.ID.clickLeft:
-            ClickEmitter.click(.left, clickCount: max(1, context.clickCount))
-            ok = true
-        case ActionCatalog.ID.clickRight:
-            ClickEmitter.click(.right, clickCount: 1)
-            ok = true
-        case ActionCatalog.ID.clickMiddle:
-            ClickEmitter.click(.middle, clickCount: 1)
-            ok = true
-
-        case ActionCatalog.ID.missionControl:
-            KeyEmitter.missionControl()
-            ok = true
-        case ActionCatalog.ID.appExpose:
-            KeyEmitter.appExpose()
-            ok = true
-        case ActionCatalog.ID.spaceLeft:
-            KeyEmitter.spaceLeft()
-            ok = true
-        case ActionCatalog.ID.spaceRight:
-            KeyEmitter.spaceRight()
-            ok = true
-
-        case ActionCatalog.ID.dockActivate:
-            if let app = context.dockApp ?? ZoneActions.dockApp() {
-                ok = ZoneActions.activateDockApp(app)
-            } else {
-                ok = false
-                errorTitle = "No window"
-            }
-        case ActionCatalog.ID.dockHide:
-            if let app = context.dockApp ?? ZoneActions.dockApp() {
-                ok = ZoneActions.hideDockApp(app)
-            } else {
-                ok = false
-            }
-        case ActionCatalog.ID.dockNewWindow:
-            if let app = context.dockApp ?? ZoneActions.dockApp() {
-                ZoneActions.newWindowForDockApp(app)
-                ok = true
-            } else {
-                ok = false
-            }
-        case ActionCatalog.ID.dockQuit:
-            if let app = context.dockApp ?? ZoneActions.dockApp() {
-                ZoneActions.quitDockApp(app)
-                ok = true
-            } else {
-                ok = false
-            }
-
-        case ActionCatalog.ID.menubarNext:
-            ZoneActions.focusNextWindow()
-            ok = true
-        case ActionCatalog.ID.menubarPrev:
-            ZoneActions.focusPreviousWindow()
-            ok = true
-        case ActionCatalog.ID.menubarHideOthers:
-            ZoneActions.hideOtherApps()
-            ok = true
-        case ActionCatalog.ID.menubarUnminimize:
-            ZoneActions.unminimizeFrontmost()
-            ok = true
-
-        case ActionCatalog.ID.browserNewTab:
-            KeyEmitter.post(keyCode: 17, flags: .maskCommand) // T
-            ok = true
-        case ActionCatalog.ID.browserCloseTab:
-            KeyEmitter.post(keyCode: 13, flags: .maskCommand) // W
-            ok = true
-        case ActionCatalog.ID.browserNextTab:
-            KeyEmitter.post(keyCode: KeyEmitter.Code.tab, flags: .maskControl)
-            ok = true
-        case ActionCatalog.ID.browserPrevTab:
-            KeyEmitter.post(keyCode: KeyEmitter.Code.tab, flags: [.maskControl, .maskShift])
-            ok = true
-        case ActionCatalog.ID.browserBack:
-            KeyEmitter.browserBack()
-            ok = true
-        case ActionCatalog.ID.browserForward:
-            KeyEmitter.browserForward()
-            ok = true
-
-        case ActionCatalog.ID.keyCopy:
-            KeyEmitter.post(keyCode: 8, flags: .maskCommand) // C
-            ok = true
-        case ActionCatalog.ID.keyPaste:
-            KeyEmitter.post(keyCode: 9, flags: .maskCommand) // V
-            ok = true
-        case ActionCatalog.ID.keyCut:
-            KeyEmitter.post(keyCode: 7, flags: .maskCommand) // X
-            ok = true
-        case ActionCatalog.ID.keyUndo:
-            KeyEmitter.post(keyCode: 6, flags: .maskCommand) // Z
-            ok = true
-        case ActionCatalog.ID.keyRedo:
-            KeyEmitter.post(keyCode: 6, flags: [.maskCommand, .maskShift]) // ⇧⌘Z
-            ok = true
-        case ActionCatalog.ID.keySelectAll:
-            KeyEmitter.post(keyCode: 0, flags: .maskCommand) // A
-            ok = true
-        case ActionCatalog.ID.keySave:
-            KeyEmitter.post(keyCode: 1, flags: .maskCommand) // S
-            ok = true
-        case ActionCatalog.ID.keyNew:
-            KeyEmitter.commandN()
-            ok = true
-        case ActionCatalog.ID.keyClose:
-            KeyEmitter.post(keyCode: 13, flags: .maskCommand) // W
-            ok = true
-        case ActionCatalog.ID.keyQuit:
-            KeyEmitter.commandQ()
-            ok = true
-        case ActionCatalog.ID.keyHide:
-            KeyEmitter.post(keyCode: KeyEmitter.Code.h, flags: .maskCommand)
-            ok = true
-        case ActionCatalog.ID.keyFind:
-            KeyEmitter.post(keyCode: 3, flags: .maskCommand) // F
-            ok = true
-        case ActionCatalog.ID.keyEscape:
-            KeyEmitter.post(keyCode: 53)
-            ok = true
-        case ActionCatalog.ID.keyDelete:
-            KeyEmitter.post(keyCode: 51)
-            ok = true
-        case ActionCatalog.ID.keyReturn:
-            KeyEmitter.post(keyCode: 36)
-            ok = true
-        case ActionCatalog.ID.keySpace:
-            KeyEmitter.post(keyCode: 49)
-            ok = true
-        case ActionCatalog.ID.keySpotlight:
-            KeyEmitter.post(keyCode: 49, flags: .maskCommand) // ⌘Space
-            ok = true
-        case ActionCatalog.ID.keySwitchApp:
-            KeyEmitter.post(keyCode: KeyEmitter.Code.tab, flags: .maskCommand)
-            ok = true
-
-        default:
-            if let ks = ActionCatalog.parseCustomKeystroke(actionId) {
-                KeyEmitter.post(keyCode: ks.keyCode, flags: ks.flags)
-                ok = true
-            } else if let bundleId = ActionCatalog.parseLaunchApp(actionId) {
-                ok = launchApplication(bundleId: bundleId)
-                if ok { hudTitle = ActionCatalog.hudTitle(for: actionId) }
-            } else if let uuid = ActionCatalog.parseCustomAction(actionId) {
-                ok = runCustomAction(uuid: uuid, errorTitle: &errorTitle)
-                if ok { hudTitle = ActionCatalog.hudTitle(for: actionId) }
-            } else {
-                Log.warn(.gesture, "Unknown actionId=\(actionId)")
-                ok = false
-            }
-        }
+            let custom = runCustom(actionId, context)
+            ok = custom.ok
+            hudTitle = custom.hudTitle
+            errorTitle = custom.errorTitle
         }
 
         if hudTitle == nil, ok {
@@ -265,6 +78,200 @@ enum ActionRunner {
             Log.warn(.gesture, "action \(actionId) failed")
         }
         return ActionRunResult(ok: ok, hudTitle: hudTitle, errorTitle: errorTitle)
+    }
+
+    private static func runWindow(_ actionId: String, _ context: ActionContext) -> ActionRunResult? {
+        switch actionId {
+        case ActionCatalog.ID.restore:
+            let ok: Bool
+            if let w = context.window {
+                ok = WindowManager.shared.restoreFrame(of: w)
+            } else {
+                ok = WindowManager.shared.restoreFocused()
+            }
+            return ActionRunResult(ok: ok, hudTitle: ok ? "Restore" : nil, errorTitle: ok ? nil : "No window")
+        case ActionCatalog.ID.minimize:
+            let ok = context.window.map { WindowManager.shared.minimize($0) } ?? WindowManager.shared.minimizeUnderCursor()
+            return ActionRunResult(ok: ok, hudTitle: nil, errorTitle: ok ? nil : "No window")
+        case ActionCatalog.ID.close:
+            let ok = context.window.map { WindowManager.shared.close($0) } ?? WindowManager.shared.closeUnderCursor()
+            return ActionRunResult(ok: ok, hudTitle: nil, errorTitle: ok ? nil : "No window")
+        case ActionCatalog.ID.fullscreen:
+            let ok = context.window.map { WindowManager.shared.fullscreen($0) } ?? WindowManager.shared.fullscreenUnderCursor()
+            return ActionRunResult(ok: ok, hudTitle: nil, errorTitle: ok ? nil : "No window")
+        case ActionCatalog.ID.moveDisplayLeft:
+            return ActionRunResult(ok: moveDisplay(-1, context), hudTitle: nil, errorTitle: nil)
+        case ActionCatalog.ID.moveDisplayRight:
+            return ActionRunResult(ok: moveDisplay(1, context), hudTitle: nil, errorTitle: nil)
+        case ActionCatalog.ID.moveSpaceLeft:
+            let result = moveSpace(-1, context)
+            return ActionRunResult(ok: result.ok, hudTitle: nil, errorTitle: result.error)
+        case ActionCatalog.ID.moveSpaceRight:
+            let result = moveSpace(1, context)
+            return ActionRunResult(ok: result.ok, hudTitle: nil, errorTitle: result.error)
+        default:
+            return nil
+        }
+    }
+
+    private static func runInput(_ actionId: String, _ context: ActionContext) -> ActionRunResult? {
+        switch actionId {
+        case ActionCatalog.ID.clickLeft:
+            ClickEmitter.click(.left, clickCount: max(1, context.clickCount))
+            return ActionRunResult(ok: true, hudTitle: nil, errorTitle: nil)
+        case ActionCatalog.ID.clickRight:
+            ClickEmitter.click(.right, clickCount: 1)
+            return ActionRunResult(ok: true, hudTitle: nil, errorTitle: nil)
+        case ActionCatalog.ID.clickMiddle:
+            ClickEmitter.click(.middle, clickCount: 1)
+            return ActionRunResult(ok: true, hudTitle: nil, errorTitle: nil)
+        case ActionCatalog.ID.browserNewTab:
+            KeyEmitter.post(keyCode: 17, flags: .maskCommand)
+            return ActionRunResult(ok: true, hudTitle: nil, errorTitle: nil)
+        case ActionCatalog.ID.browserCloseTab:
+            KeyEmitter.post(keyCode: 13, flags: .maskCommand)
+            return ActionRunResult(ok: true, hudTitle: nil, errorTitle: nil)
+        case ActionCatalog.ID.browserNextTab:
+            KeyEmitter.post(keyCode: KeyEmitter.Code.tab, flags: .maskControl)
+            return ActionRunResult(ok: true, hudTitle: nil, errorTitle: nil)
+        case ActionCatalog.ID.browserPrevTab:
+            KeyEmitter.post(keyCode: KeyEmitter.Code.tab, flags: [.maskControl, .maskShift])
+            return ActionRunResult(ok: true, hudTitle: nil, errorTitle: nil)
+        case ActionCatalog.ID.browserBack:
+            KeyEmitter.browserBack()
+            return ActionRunResult(ok: true, hudTitle: nil, errorTitle: nil)
+        case ActionCatalog.ID.browserForward:
+            KeyEmitter.browserForward()
+            return ActionRunResult(ok: true, hudTitle: nil, errorTitle: nil)
+        case ActionCatalog.ID.keyCopy:
+            KeyEmitter.post(keyCode: 8, flags: .maskCommand)
+            return ActionRunResult(ok: true, hudTitle: nil, errorTitle: nil)
+        case ActionCatalog.ID.keyPaste:
+            KeyEmitter.post(keyCode: 9, flags: .maskCommand)
+            return ActionRunResult(ok: true, hudTitle: nil, errorTitle: nil)
+        case ActionCatalog.ID.keyCut:
+            KeyEmitter.post(keyCode: 7, flags: .maskCommand)
+            return ActionRunResult(ok: true, hudTitle: nil, errorTitle: nil)
+        case ActionCatalog.ID.keyUndo:
+            KeyEmitter.post(keyCode: 6, flags: .maskCommand)
+            return ActionRunResult(ok: true, hudTitle: nil, errorTitle: nil)
+        case ActionCatalog.ID.keyRedo:
+            KeyEmitter.post(keyCode: 6, flags: [.maskCommand, .maskShift])
+            return ActionRunResult(ok: true, hudTitle: nil, errorTitle: nil)
+        case ActionCatalog.ID.keySelectAll:
+            KeyEmitter.post(keyCode: 0, flags: .maskCommand)
+            return ActionRunResult(ok: true, hudTitle: nil, errorTitle: nil)
+        case ActionCatalog.ID.keySave:
+            KeyEmitter.post(keyCode: 1, flags: .maskCommand)
+            return ActionRunResult(ok: true, hudTitle: nil, errorTitle: nil)
+        case ActionCatalog.ID.keyNew:
+            KeyEmitter.commandN()
+            return ActionRunResult(ok: true, hudTitle: nil, errorTitle: nil)
+        case ActionCatalog.ID.keyClose:
+            KeyEmitter.post(keyCode: 13, flags: .maskCommand)
+            return ActionRunResult(ok: true, hudTitle: nil, errorTitle: nil)
+        case ActionCatalog.ID.keyQuit:
+            KeyEmitter.commandQ()
+            return ActionRunResult(ok: true, hudTitle: nil, errorTitle: nil)
+        case ActionCatalog.ID.keyHide:
+            KeyEmitter.post(keyCode: KeyEmitter.Code.h, flags: .maskCommand)
+            return ActionRunResult(ok: true, hudTitle: nil, errorTitle: nil)
+        case ActionCatalog.ID.keyFind:
+            KeyEmitter.post(keyCode: 3, flags: .maskCommand)
+            return ActionRunResult(ok: true, hudTitle: nil, errorTitle: nil)
+        case ActionCatalog.ID.keyEscape:
+            KeyEmitter.post(keyCode: 53)
+            return ActionRunResult(ok: true, hudTitle: nil, errorTitle: nil)
+        case ActionCatalog.ID.keyDelete:
+            KeyEmitter.post(keyCode: 51)
+            return ActionRunResult(ok: true, hudTitle: nil, errorTitle: nil)
+        case ActionCatalog.ID.keyReturn:
+            KeyEmitter.post(keyCode: 36)
+            return ActionRunResult(ok: true, hudTitle: nil, errorTitle: nil)
+        case ActionCatalog.ID.keySpace:
+            KeyEmitter.post(keyCode: 49)
+            return ActionRunResult(ok: true, hudTitle: nil, errorTitle: nil)
+        case ActionCatalog.ID.keySpotlight:
+            KeyEmitter.post(keyCode: 49, flags: .maskCommand)
+            return ActionRunResult(ok: true, hudTitle: nil, errorTitle: nil)
+        case ActionCatalog.ID.keySwitchApp:
+            KeyEmitter.post(keyCode: KeyEmitter.Code.tab, flags: .maskCommand)
+            return ActionRunResult(ok: true, hudTitle: nil, errorTitle: nil)
+        default:
+            return nil
+        }
+    }
+
+    private static func runSystem(_ actionId: String, _ context: ActionContext) -> ActionRunResult? {
+        switch actionId {
+        case ActionCatalog.ID.missionControl:
+            KeyEmitter.missionControl()
+            return ActionRunResult(ok: true, hudTitle: nil, errorTitle: nil)
+        case ActionCatalog.ID.appExpose:
+            KeyEmitter.appExpose()
+            return ActionRunResult(ok: true, hudTitle: nil, errorTitle: nil)
+        case ActionCatalog.ID.spaceLeft:
+            KeyEmitter.spaceLeft()
+            return ActionRunResult(ok: true, hudTitle: nil, errorTitle: nil)
+        case ActionCatalog.ID.spaceRight:
+            KeyEmitter.spaceRight()
+            return ActionRunResult(ok: true, hudTitle: nil, errorTitle: nil)
+        case ActionCatalog.ID.dockActivate:
+            if let app = context.dockApp ?? ZoneActions.dockApp() {
+                return ActionRunResult(ok: ZoneActions.activateDockApp(app), hudTitle: nil, errorTitle: nil)
+            }
+            return ActionRunResult(ok: false, hudTitle: nil, errorTitle: "No window")
+        case ActionCatalog.ID.dockHide:
+            if let app = context.dockApp ?? ZoneActions.dockApp() {
+                return ActionRunResult(ok: ZoneActions.hideDockApp(app), hudTitle: nil, errorTitle: nil)
+            }
+            return ActionRunResult(ok: false, hudTitle: nil, errorTitle: nil)
+        case ActionCatalog.ID.dockNewWindow:
+            if let app = context.dockApp ?? ZoneActions.dockApp() {
+                ZoneActions.newWindowForDockApp(app)
+                return ActionRunResult(ok: true, hudTitle: nil, errorTitle: nil)
+            }
+            return ActionRunResult(ok: false, hudTitle: nil, errorTitle: nil)
+        case ActionCatalog.ID.dockQuit:
+            if let app = context.dockApp ?? ZoneActions.dockApp() {
+                ZoneActions.quitDockApp(app)
+                return ActionRunResult(ok: true, hudTitle: nil, errorTitle: nil)
+            }
+            return ActionRunResult(ok: false, hudTitle: nil, errorTitle: nil)
+        case ActionCatalog.ID.menubarNext:
+            ZoneActions.focusNextWindow()
+            return ActionRunResult(ok: true, hudTitle: nil, errorTitle: nil)
+        case ActionCatalog.ID.menubarPrev:
+            ZoneActions.focusPreviousWindow()
+            return ActionRunResult(ok: true, hudTitle: nil, errorTitle: nil)
+        case ActionCatalog.ID.menubarHideOthers:
+            ZoneActions.hideOtherApps()
+            return ActionRunResult(ok: true, hudTitle: nil, errorTitle: nil)
+        case ActionCatalog.ID.menubarUnminimize:
+            ZoneActions.unminimizeFrontmost()
+            return ActionRunResult(ok: true, hudTitle: nil, errorTitle: nil)
+        default:
+            return nil
+        }
+    }
+
+    private static func runCustom(_ actionId: String, _ context: ActionContext) -> ActionRunResult {
+        _ = context
+        var errorTitle: String?
+        if let ks = ActionCatalog.parseCustomKeystroke(actionId) {
+            KeyEmitter.post(keyCode: ks.keyCode, flags: ks.flags)
+            return ActionRunResult(ok: true, hudTitle: nil, errorTitle: nil)
+        }
+        if let bundleId = ActionCatalog.parseLaunchApp(actionId) {
+            let ok = launchApplication(bundleId: bundleId)
+            return ActionRunResult(ok: ok, hudTitle: ok ? ActionCatalog.hudTitle(for: actionId) : nil, errorTitle: nil)
+        }
+        if let uuid = ActionCatalog.parseCustomAction(actionId) {
+            let ok = runCustomAction(uuid: uuid, errorTitle: &errorTitle)
+            return ActionRunResult(ok: ok, hudTitle: ok ? ActionCatalog.hudTitle(for: actionId) : nil, errorTitle: errorTitle)
+        }
+        Log.warn(.gesture, "Unknown actionId=\(actionId)")
+        return ActionRunResult(ok: false, hudTitle: nil, errorTitle: nil)
     }
 
     private static func snap(_ layout: WindowLayout, _ context: ActionContext) -> (ok: Bool, restored: Bool) {

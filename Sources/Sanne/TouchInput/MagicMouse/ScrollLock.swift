@@ -9,20 +9,20 @@ struct ScrollLock: Equatable {
     static let wheelTouchCorrelation: TimeInterval = 1.5
     static let wheelDeltaMin: CGFloat = 1.5
 
-    var noTapUntil: Date?
+    var noTapUntil: TimeInterval?
 
-    mutating func arm(for duration: TimeInterval, now: Date = Date()) {
-        let until = now.addingTimeInterval(duration)
+    mutating func arm(for duration: TimeInterval, now: TimeInterval = CFAbsoluteTimeGetCurrent()) {
+        let until = now + duration
         if let existing = noTapUntil, existing >= until { return }
         noTapUntil = until
     }
 
-    mutating func rearmResidual(now: Date = Date()) {
+    mutating func rearmResidual(now: TimeInterval = CFAbsoluteTimeGetCurrent()) {
         arm(for: Self.residual, now: now)
     }
 
     /// Contact must *begin* after the lock expires (not merely end after it).
-    func isBlocked(contactStart: Date) -> Bool {
+    func isBlocked(contactStart: TimeInterval) -> Bool {
         guard let until = noTapUntil else { return false }
         return contactStart < until
     }

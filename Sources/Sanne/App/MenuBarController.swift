@@ -31,12 +31,6 @@ final class MenuBarController: NSObject, NSMenuDelegate, NSWindowDelegate {
         button.appearsDisabled = app.isPaused && app.accessibilityTrusted
     }
 
-    /// Kept for call sites that used to rebuild the whole menu. Icon only — items
-    /// refresh when the menu opens.
-    func refreshMenu() {
-        refreshIcon()
-    }
-
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
         populate(menu, showDebug: NSEvent.modifierFlags.contains(.option))

@@ -4,7 +4,7 @@ import Darwin
 import Foundation
 
 /// Window identity for restore / last-layout. `pid + CGWindowNumber` so a Chrome tab title
-/// change does not orphan the stored frame ([TECHNICAL_DESIGN.md](../../TECHNICAL_DESIGN.md) §10.5).
+/// change does not orphan the stored frame.
 struct WindowIdentity: Hashable {
     var pid: pid_t
     var windowNumber: CGWindowID

@@ -300,36 +300,7 @@ final class WindowManager {
             &element
         )
         guard err == .success, let element else { return nil }
-
-        var cursor: AXUIElement? = element
-        for _ in 0..<10 {
-            guard let c = cursor else { break }
-            if stringAttr(c, kAXRoleAttribute as String) == (kAXWindowRole as String) {
-                var pid: pid_t = 0
-                AXUIElementGetPid(c, &pid)
-                if pid == ProcessInfo.processInfo.processIdentifier { return nil }
-                return c
-            }
-            var parent: CFTypeRef?
-            if AXUIElementCopyAttributeValue(c, kAXParentAttribute as CFString, &parent) == .success,
-               let parent
-            {
-                cursor = (parent as! AXUIElement)
-            } else {
-                break
-            }
-        }
-        var winRef: CFTypeRef?
-        if AXUIElementCopyAttributeValue(element, kAXWindowAttribute as CFString, &winRef) == .success,
-           let winRef
-        {
-            let win = winRef as! AXUIElement
-            var pid: pid_t = 0
-            AXUIElementGetPid(win, &pid)
-            if pid == ProcessInfo.processInfo.processIdentifier { return nil }
-            return win
-        }
-        return nil
+        return AXQuery.window(from: element)
     }
 
     func frame(of window: AXUIElement) -> CGRect? {
@@ -350,24 +321,64 @@ final class WindowManager {
         return CGRect(origin: position, size: size)
     }
 
+    private var lastLiveFrame: [ObjectIdentifier: CGRect] = [:]
+
     @discardableResult
-    func setFrame(_ window: AXUIElement, _ rect: CGRect) -> Bool {
+    func setFrame(_ window: AXUIElement, _ rect: CGRect, mode: AXFrameWriteMode = .commit) -> Bool {
+        switch mode {
+        case .live:
+            return setFrameLive(window, rect)
+        case .commit:
+            lastLiveFrame[ObjectIdentifier(window)] = rect
+            return writeFrame(window, rect, doubleWrite: true)
+        }
+    }
+
+    @discardableResult
+    func setFrameLive(_ window: AXUIElement, _ rect: CGRect) -> Bool {
+        let key = ObjectIdentifier(window)
+        if AXFrameWrite.shouldSkipLive(previous: lastLiveFrame[key], next: rect) {
+            return true
+        }
+        let kind = AXFrameWrite.liveKind(previous: lastLiveFrame[key], next: rect)
+        lastLiveFrame[key] = rect
+        switch kind {
+        case .move:
+            return writePosition(window, rect.origin)
+        case .resize:
+            return writeFrame(window, rect, doubleWrite: false)
+        }
+    }
+
+    private func writePosition(_ window: AXUIElement, _ origin: CGPoint) -> Bool {
+        PerfCounters.incAXSetFrame()
+        var position = origin
+        guard let pos = AXValueCreate(.cgPoint, &position) else { return false }
+        let err = AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, pos)
+        if err != .success {
+            Log.warn(.window, "setFrame live pos failed \(err.rawValue)")
+        }
+        return err == .success
+    }
+
+    @discardableResult
+    private func writeFrame(_ window: AXUIElement, _ rect: CGRect, doubleWrite: Bool) -> Bool {
+        PerfCounters.incAXSetFrame()
         var position = rect.origin
         var size = rect.size
         guard let pos = AXValueCreate(.cgPoint, &position),
               let sz = AXValueCreate(.cgSize, &size) else { return false }
-        // Some apps need size-then-position (or both twice) to stick.
         let sizeErr1 = AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, sz)
         let posErr1 = AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, pos)
-        let sizeErr2 = AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, sz)
-        let posErr2 = AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, pos)
-        let ok = (sizeErr1 == .success || sizeErr2 == .success)
-            && (posErr1 == .success || posErr2 == .success)
+        if doubleWrite {
+            _ = AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, sz)
+            _ = AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, pos)
+        }
+        let ok = sizeErr1 == .success && posErr1 == .success
         if !ok {
             Log.warn(
                 .window,
-                "setFrame failed size=\(sizeErr1.rawValue)/\(sizeErr2.rawValue) " +
-                "pos=\(posErr1.rawValue)/\(posErr2.rawValue)"
+                "setFrame failed size=\(sizeErr1.rawValue) pos=\(posErr1.rawValue)"
             )
         }
         return ok
@@ -379,11 +390,5 @@ final class WindowManager {
               let btn else { return false }
         let button = btn as! AXUIElement
         return AXUIElementPerformAction(button, kAXPressAction as CFString) == .success
-    }
-
-    private func stringAttr(_ el: AXUIElement, _ attr: String) -> String? {
-        var ref: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(el, attr as CFString, &ref) == .success else { return nil }
-        return ref as? String
     }
 }

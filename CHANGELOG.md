@@ -7,6 +7,12 @@ Versioning follows [SemVer](https://semver.org/) once public releases begin.
 
 ## [Unreleased]
 
+### Changed
+
+- Debug Log defaults to info-level; “Every touch frame” is off unless Debug Log is open and the toggle is on. Frame logs cap at ~20 Hz
+- Settings → Advanced → Debug Log shows a live `mm=… tp=… main=…` counter line with Reset
+- Recognition no longer copies the full config or hops to the main thread on every touch frame; config.json saves are coalesced (~350 ms)
+
 ### Added
 
 - **Continuous thirds** — a longer titlebar swipe left/right walks half → third → two-thirds; preview updates as you go. Same policy as keyboard ←/→
@@ -54,7 +60,7 @@ Versioning follows [SemVer](https://semver.org/) once public releases begin.
 ### Planned
 
 - Notarized GitHub Releases workflow (credentials + CI)
-- Hardware QA (IMPROVEMENT_PLAN §5.2) and compatibility matrix (§5.3)
+- Hardware QA and compatibility matrix
 - Submit the Homebrew cask once a public DMG URL exists
 
 ---

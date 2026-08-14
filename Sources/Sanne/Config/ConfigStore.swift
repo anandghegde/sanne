@@ -1,5 +1,6 @@
-import Foundation
+import AppKit
 import Combine
+import Foundation
 
 @MainActor
 final class ConfigStore: ObservableObject {
@@ -21,6 +22,8 @@ final class ConfigStore: ObservableObject {
         return e
     }()
     private let decoder = JSONDecoder()
+    private var saveGeneration: UInt64 = 0
+    private var terminateObserver: NSObjectProtocol?
 
     private init() {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
@@ -28,6 +31,13 @@ final class ConfigStore: ObservableObject {
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         fileURL = dir.appendingPathComponent("config.json")
         load()
+        terminateObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.willTerminateNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            Task { @MainActor in ConfigStore.shared.flushPendingSave() }
+        }
     }
 
     func load() {
@@ -97,6 +107,7 @@ final class ConfigStore: ObservableObject {
         do {
             let data = try encoder.encode(config)
             try data.write(to: fileURL, options: .atomic)
+            PerfCounters.incConfigSaves()
         } catch {
             Log.error(.config, "Failed to save config: \(error.localizedDescription)")
         }
@@ -106,8 +117,28 @@ final class ConfigStore: ObservableObject {
         var next = config
         mutate(&next)
         config = next
-        save()
+        scheduleSave()
         NotificationCenter.default.post(name: .sanneConfigDidChange, object: nil)
+    }
+
+    private func scheduleSave() {
+        saveGeneration += 1
+        let token = saveGeneration
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            guard token == saveGeneration else { return }
+            save()
+        }
+    }
+
+    /// Write immediately and cancel a pending debounce (export / quit / import / reset).
+    func flushPendingSave() {
+        saveGeneration += 1
+        save()
+    }
+
+    func flushForTests() {
+        flushPendingSave()
     }
 
     func resetToStandard() {
@@ -123,7 +154,7 @@ final class ConfigStore: ObservableObject {
         config.appGestureOverrides = [:]
         config.presetId = SannePreset.standardId
         config.migrateToSlotEnablement()
-        save()
+        flushPendingSave()
         NotificationCenter.default.post(name: .sanneConfigDidChange, object: nil)
     }
 
@@ -136,7 +167,8 @@ final class ConfigStore: ObservableObject {
 
     /// Pretty-printed JSON of the current config (for export / backup).
     func exportData() throws -> Data {
-        try encoder.encode(config)
+        flushPendingSave()
+        return try encoder.encode(config)
     }
 
     /// Replace config from imported JSON. Keeps `paused` as currently set unless the file sets it.
@@ -148,7 +180,7 @@ final class ConfigStore: ObservableObject {
         if decoded.paused == false {
             config.paused = wasPaused
         }
-        save()
+        flushPendingSave()
         NotificationCenter.default.post(name: .sanneConfigDidChange, object: nil)
         Log.info(.config, "Imported config (presetId=\(config.presetId))")
     }

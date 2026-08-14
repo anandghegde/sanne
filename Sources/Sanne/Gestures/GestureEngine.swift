@@ -12,13 +12,23 @@ private struct GestureSession {
     var pinchCandidate: Bool?
     var dragBegan = false
     var loggedPreviewLayout: WindowLayout?
+    var snapshot = RuntimeSnapshot.empty
+}
+
+private struct SessionBegin {
+    var zone: CursorZone
+    var window: AXUIElement?
+    var dockApp: NSRunningApplication?
+    var frontmostBundle: String?
+    var snapshot: RuntimeSnapshot
+    var point: CGPoint
 }
 
 /// Trackpad zone gestures (titlebar / Dock / menubar). Magic Mouse taps: `MagicMouseTapController`.
-/// Actions resolve through `BindingResolver` + `ActionRunner` so remaps apply.
 final class GestureEngine: @unchecked Sendable {
     static let shared = GestureEngine()
 
+    private let pipeline = TouchDeviceManager.shared.pipelineQueue
     private let swipePinch = SwipePinchRecognizer()
     private let threeFingerDrag = ThreeFingerDragRecognizer()
     private let fourFingerTap = ThreeFingerDragRecognizer()
@@ -27,12 +37,10 @@ final class GestureEngine: @unchecked Sendable {
 
     private var session = GestureSession()
     private var hadTouches = false
+    private var awaitingBegin = false
+    private var sessionReady = false
+    private var pendingFrames: [TouchFrame] = []
 
-    private static var frontmostBundleId: String? {
-        NSWorkspace.shared.frontmostApplication?.bundleIdentifier
-    }
-
-    private var configProvider: () -> SanneConfig = { .default }
     private var isPaused: () -> Bool = { false }
     private var isMagicMousePaused: () -> Bool = { false }
 
@@ -41,33 +49,25 @@ final class GestureEngine: @unchecked Sendable {
         paused: @escaping () -> Bool,
         magicMousePaused: (() -> Bool)? = nil
     ) {
-        configProvider = config
+        _ = config
         isPaused = paused
         isMagicMousePaused = magicMousePaused ?? paused
 
-        MagicMouseTapController.shared.start(
-            config: config,
-            paused: { GestureEngine.shared.isMagicMousePaused() },
-            onEvent: { event in
-                Task { @MainActor in
-                    GestureEngine.shared.handleMagicMouse(event)
-                }
+        MagicMouseTapController.shared.start { event in
+            MainHop.async {
+                GestureEngine.shared.handleMagicMouse(event)
             }
-        )
+        }
 
         guard listenerID == nil else { return }
         listenerID = TouchDeviceManager.shared.addListener { [weak self] frame in
-            DispatchQueue.main.async {
-                self?.handleOnMain(frame)
-            }
+            self?.handle(frame)
         }
         Log.info(.gesture, "GestureEngine started (titlebar + Dock + menubar + Magic Mouse taps)")
     }
 
     func stop() {
-        // The fade would clear it within a second anyway, but a HUD naming an action while Sanne is
-        // being switched off reads like the gesture is still live.
-        Task { @MainActor in HUDController.shared.hide() }
+        MainHop.async { HUDController.shared.hide() }
         MagicMouseTapController.shared.stop()
         if let listenerID {
             TouchDeviceManager.shared.removeListener(listenerID)
@@ -81,6 +81,10 @@ final class GestureEngine: @unchecked Sendable {
         swipePinch.reset()
         tipTap.reset()
         session = GestureSession()
+        awaitingBegin = false
+        sessionReady = false
+        pendingFrames = []
+        hadTouches = false
     }
 
     // MARK: - Magic Mouse
@@ -88,40 +92,37 @@ final class GestureEngine: @unchecked Sendable {
     @MainActor
     private func handleMagicMouse(_ event: MagicMouseEvent) {
         if isMagicMousePaused() { return }
-        let config = configProvider()
+        let snap = RuntimeSnapshotStore.shared.snapshot
         switch event {
         case .recognized(let slotId, let clickCount):
-            // Read live rather than from the touch path's snapshot: Magic Mouse events arrive
-            // already recognized, so this is the first moment the engine sees the gesture at all.
-            guard let resolved = BindingResolver.resolve(
-                slotId: slotId,
-                config: config,
-                frontmostBundleId: Self.frontmostBundleId
-            ), resolved.enabled else {
+            guard snap.slotOn(slotId), let actionId = snap.actionId(for: slotId) else {
                 Log.debug(.gesture, "MagicMouse slot=\(slotId) disabled")
                 return
             }
-            Log.info(.gesture, "MagicMouse slot=\(slotId) → \(resolved.actionId)×\(clickCount)")
+            Log.info(.gesture, "MagicMouse slot=\(slotId) → \(actionId)×\(clickCount)")
             GestureActivity.announce(slotId: slotId)
-            var ctx = makeContext(config: config)
-            // Multi-click only when still performing left-click.
-            if resolved.actionId == ActionCatalog.ID.clickLeft {
-                ctx.clickCount = config.magicMouseTaps.multiClick ? clickCount : 1
+            var ctx = ActionContext(
+                window: session.window,
+                dockApp: session.dockApp,
+                gap: CGFloat(snap.gap),
+                haptics: snap.haptics
+            )
+            if actionId == ActionCatalog.ID.clickLeft {
+                ctx.clickCount = snap.multiClick ? clickCount : 1
             }
-            perform(resolved.actionId, context: ctx, config: config)
-            if slotId == GestureSlots.ID.mmLeft || resolved.actionId == ActionCatalog.ID.clickLeft {
+            _ = perform(actionId, context: ctx, hudEnabled: snap.hudEnabled)
+            if slotId == GestureSlots.ID.mmLeft || actionId == ActionCatalog.ID.clickLeft {
                 TutorialPrefs.post(.magicMouseClick)
             }
-            if resolved.actionId == ActionCatalog.ID.clickMiddle {
+            if actionId == ActionCatalog.ID.clickMiddle {
                 TutorialPrefs.post(.trackpadMiddleClick)
             }
         }
     }
 
-    // MARK: - Trackpad frames
+    // MARK: - Trackpad frames (pipeline queue)
 
-    @MainActor
-    private func handleOnMain(_ frame: TouchFrame) {
+    private func handle(_ frame: TouchFrame) {
         if isPaused() {
             if threeFingerDrag.isDragging {
                 ClickEmitter.mouseUp(.left)
@@ -131,69 +132,121 @@ final class GestureEngine: @unchecked Sendable {
             tipTap.reset()
             fourFingerTap.reset()
             session = GestureSession()
+            awaitingBegin = false
+            sessionReady = false
+            pendingFrames = []
+            hadTouches = false
             return
         }
-        let config = configProvider()
+
         let live = frame.touches.filter { $0.phase != .ended && $0.phase != .cancelled }
 
-        if !hadTouches, !live.isEmpty {
-            let point = NSEvent.mouseLocation
-            session = GestureSession(
-                zone: ZoneClassifier.zone(at: point),
-                frontmostBundle: Self.frontmostBundleId
-            )
+        if awaitingBegin {
+            pendingFrames.append(frame)
+            return
+        }
 
-            switch session.zone {
-            case .titlebar:
-                session.window = WindowManager.shared.windowAt(appKitPoint: point)
-                Log.info(
-                    .gesture,
-                    "gesture begin zone=titlebar fingers=\(live.count) " +
-                    "window=\(session.window != nil ? "yes" : "nil") " +
-                    "cursor=(\(Int(point.x)),\(Int(point.y)))"
-                )
-            case .dock:
-                session.dockApp = ZoneActions.dockApp(at: point)
-                Log.info(
-                    .gesture,
-                    "gesture begin zone=dock fingers=\(live.count) " +
-                    "app=\(session.dockApp?.localizedName ?? "nil") " +
-                    "cursor=(\(Int(point.x)),\(Int(point.y)))"
-                )
-            case .menubar:
-                Log.info(
-                    .gesture,
-                    "gesture begin zone=menubar fingers=\(live.count) " +
-                    "cursor=(\(Int(point.x)),\(Int(point.y)))"
-                )
-            case .free:
-                if live.count >= 2 {
-                    Log.debug(.gesture, "gesture begin zone=free fingers=\(live.count)")
+        if !sessionReady, !live.isEmpty {
+            awaitingBegin = true
+            pendingFrames = [frame]
+            MainHop.async {
+                let begin = GestureEngine.sampleBegin()
+                TouchDeviceManager.shared.pipelineQueue.async {
+                    GestureEngine.shared.applyBegin(begin)
                 }
             }
+            return
         }
-        hadTouches = !live.isEmpty
 
-        // Trackpad free-space owns its own arbitration (drag / swipe / tap / tip-tap) and never
-        // drives window-zone previews, so it handles the frame and returns.
+        process(frame)
+    }
+
+    @MainActor
+    private static func sampleBegin() -> SessionBegin {
+        let point = NSEvent.mouseLocation
+        let snap = RuntimeSnapshotStore.shared.snapshot
+        let zone = ZoneClassifier.zone(at: point)
+        var window: AXUIElement?
+        var dockApp: NSRunningApplication?
+        switch zone {
+        case .titlebar:
+            window = WindowManager.shared.windowAt(appKitPoint: point)
+        case .dock:
+            dockApp = ZoneActions.dockApp(at: point)
+        default:
+            break
+        }
+        return SessionBegin(
+            zone: zone,
+            window: window,
+            dockApp: dockApp,
+            frontmostBundle: snap.frontmostBundleId,
+            snapshot: snap,
+            point: point
+        )
+    }
+
+    private func applyBegin(_ begin: SessionBegin) {
+        awaitingBegin = false
+        sessionReady = true
+        session = GestureSession(
+            zone: begin.zone,
+            window: begin.window,
+            dockApp: begin.dockApp,
+            frontmostBundle: begin.frontmostBundle,
+            snapshot: begin.snapshot
+        )
+        switch begin.zone {
+        case .titlebar:
+            Log.info(
+                .gesture,
+                "gesture begin zone=titlebar " +
+                "window=\(begin.window != nil ? "yes" : "nil") " +
+                "cursor=(\(Int(begin.point.x)),\(Int(begin.point.y)))"
+            )
+        case .dock:
+            Log.info(
+                .gesture,
+                "gesture begin zone=dock " +
+                "app=\(begin.dockApp?.localizedName ?? "nil") " +
+                "cursor=(\(Int(begin.point.x)),\(Int(begin.point.y)))"
+            )
+        case .menubar:
+            Log.info(
+                .gesture,
+                "gesture begin zone=menubar " +
+                "cursor=(\(Int(begin.point.x)),\(Int(begin.point.y)))"
+            )
+        case .free:
+            break
+        }
+        let frames = pendingFrames
+        pendingFrames = []
+        for frame in frames {
+            process(frame)
+        }
+    }
+
+    private func process(_ frame: TouchFrame) {
+        let live = frame.touches.filter { $0.phase != .ended && $0.phase != .cancelled }
+        hadTouches = !live.isEmpty
+        let snap = session.snapshot
+
         if session.zone == .free {
-            handleFreeSpace(frame: frame, fingers: live.count, config: config)
+            handleFreeSpace(frame: frame, fingers: live.count, snap: snap)
             if live.isEmpty {
                 swipePinch.reset()
-                // Clear here as well as inside the recognizer: a session that ended while a
-                // 3+ chord was suppressing the tip-tap path never saw its own lift frame.
                 tipTap.reset()
                 clearGestureContext()
             }
             return
         }
 
-        let zone = session.zone
         let zoneEnabled: Bool = {
-            switch zone {
-            case .titlebar: return config.titlebarGestures.enabled
-            case .dock: return config.dockGestures.enabled
-            case .menubar: return config.menubarGestures.enabled
+            switch session.zone {
+            case .titlebar: return snap.masters.titlebar
+            case .dock: return snap.masters.dock
+            case .menubar: return snap.masters.menubar
             case .free: return false
             }
         }()
@@ -201,7 +254,7 @@ final class GestureEngine: @unchecked Sendable {
         guard zoneEnabled else {
             if live.isEmpty {
                 swipePinch.reset()
-                WindowManager.shared.hidePreview()
+                hopHidePreview()
                 clearGestureContext()
             }
             return
@@ -209,20 +262,20 @@ final class GestureEngine: @unchecked Sendable {
 
         guard let outcome = swipePinch.process(
             frame: frame,
-            zone: zone,
-            sensitivity: config.trackpad.sensitivity
+            zone: session.zone,
+            sensitivity: snap.trackpadSensitivity
         ) else {
             if live.isEmpty { clearGestureContext() }
             return
         }
 
-        switch zone {
+        switch session.zone {
         case .titlebar:
-            applyTitlebar(outcome, config: config)
+            applyTitlebar(outcome, snap: snap)
         case .dock:
-            applyDock(outcome, config: config)
+            applyDock(outcome, snap: snap)
         case .menubar:
-            applyMenubar(outcome, config: config)
+            applyMenubar(outcome, snap: snap)
         case .free:
             break
         }
@@ -239,38 +292,23 @@ final class GestureEngine: @unchecked Sendable {
         session.pinchCandidate = nil
         session.peakFingers = 0
         session.dragBegan = false
+        sessionReady = false
+        awaitingBegin = false
+        hadTouches = false
         fourFingerTap.reset()
     }
 
     // MARK: - Free space
 
-    /// Free-space arbitration, highest priority first:
-    ///
-    /// 1. **3-finger drag** — once a drag commits it owns the session (a swipe would leave a
-    ///    stuck mouse button). With drag enabled its 0.028 travel threshold trips before the
-    ///    0.08 swipe threshold, so 3-finger swipes are in practice a "drag off" gesture.
-    /// 2. **Swipe** — 3F or 4F, by the peak contact count of the session.
-    /// 3. **Tap** — only when nothing travelled far enough to be a swipe.
-    ///
-    /// The peak count is sticky for the whole session so a 4-finger chord that loses a finger
-    /// mid-swipe cannot also fire the 3-finger slot.
-    ///
-    /// Tip-tap sits outside that ladder entirely: it needs one resting finger plus one tapping
-    /// finger, so it only exists in the 1–2 contact range while every gesture above requires a
-    /// 3+ chord. The split is structural, not threshold-tuned, which is why a session can never
-    /// fire both a tip-tap and a chord gesture.
-    @MainActor
-    private func handleFreeSpace(frame: TouchFrame, fingers: Int, config: SanneConfig) {
+    private func handleFreeSpace(frame: TouchFrame, fingers: Int, snap: RuntimeSnapshot) {
         session.peakFingers = max(session.peakFingers, fingers)
 
         if session.peakFingers <= 2 {
-            handleFreeSpaceTipTap(frame: frame, config: config)
+            handleFreeSpaceTipTap(frame: frame, snap: snap)
             return
         }
 
         if session.peakFingers >= 4 {
-            // A drag may have started before the fourth finger landed — let go rather than
-            // smear a selection while the user swipes.
             if threeFingerDrag.isDragging {
                 ClickEmitter.mouseUp(.left)
                 Log.info(.gesture, "3F drag released — 4-finger chord took over")
@@ -278,38 +316,32 @@ final class GestureEngine: @unchecked Sendable {
             threeFingerDrag.reset()
             session.dragBegan = false
 
-            if handleFreeSpaceSwipes(frame: frame, config: config) { return }
-            if fourFingerTap.process(frame: frame, sensitivity: config.trackpad.sensitivity) == .tap {
-                runSlot(GestureSlots.ID.free4Tap, config: config)
+            if handleFreeSpaceSwipes(frame: frame, snap: snap) { return }
+            if fourFingerTap.process(frame: frame, sensitivity: snap.trackpadSensitivity) == .tap {
+                runSlot(GestureSlots.ID.free4Tap, snap: snap)
             }
             return
         }
 
-        handleFreeSpaceThreeFinger(frame: frame, config: config)
+        handleFreeSpaceThreeFinger(frame: frame, snap: snap)
         guard !session.dragBegan else { return }
-        handleFreeSpaceSwipes(frame: frame, config: config)
+        handleFreeSpaceSwipes(frame: frame, snap: snap)
     }
 
-    /// Runs the tip-tap state machine. Only reached while the session has never exceeded two
-    /// contacts, so it cannot compete with the chord gestures.
-    @MainActor
-    private func handleFreeSpaceTipTap(frame: TouchFrame, config: SanneConfig) {
+    private func handleFreeSpaceTipTap(frame: TouchFrame, snap: RuntimeSnapshot) {
         guard case .tipTap(let side) = tipTap.process(
             frame: frame,
-            sensitivity: config.trackpad.sensitivity
+            sensitivity: snap.trackpadSensitivity
         ) else { return }
-
-        runSlot(GestureSlots.tipTapSlot(side: side), config: config)
+        runSlot(GestureSlots.tipTapSlot(side: side), snap: snap)
     }
 
-    /// Commits a free-space 3F/4F swipe. Previews are ignored — free space has no preview.
-    @MainActor
     @discardableResult
-    private func handleFreeSpaceSwipes(frame: TouchFrame, config: SanneConfig) -> Bool {
+    private func handleFreeSpaceSwipes(frame: TouchFrame, snap: RuntimeSnapshot) -> Bool {
         guard let outcome = swipePinch.process(
             frame: frame,
             zone: .free,
-            sensitivity: config.trackpad.sensitivity
+            sensitivity: snap.trackpadSensitivity
         ) else { return false }
 
         guard outcome.isCommit, case .swipe(let fingers, let direction) = outcome.gesture else {
@@ -320,20 +352,13 @@ final class GestureEngine: @unchecked Sendable {
             direction: direction
         ) else { return false }
 
-        return runSlot(slotId, config: config)
+        return runSlot(slotId, snap: snap)
     }
 
-    // MARK: - Free-space 3-finger (drag + middle-click tap)
+    private func handleFreeSpaceThreeFinger(frame: TouchFrame, snap: RuntimeSnapshot) {
+        let dragOn = snap.slotOn(GestureSlots.ID.free3Drag)
 
-    @MainActor
-    private func handleFreeSpaceThreeFinger(frame: TouchFrame, config: SanneConfig) {
-        let dragOn = BindingResolver.resolve(
-            slotId: GestureSlots.ID.free3Drag,
-            config: config,
-            frontmostBundleId: session.frontmostBundle
-        )?.enabled ?? config.trackpad.threeFingerDrag
-
-        switch threeFingerDrag.process(frame: frame, sensitivity: config.trackpad.sensitivity) {
+        switch threeFingerDrag.process(frame: frame, sensitivity: snap.trackpadSensitivity) {
         case .none:
             break
         case .dragBegan(let downAt, let cursor):
@@ -343,7 +368,9 @@ final class GestureEngine: @unchecked Sendable {
             if hypot(cursor.x - downAt.x, cursor.y - downAt.y) >= 0.5 {
                 ClickEmitter.mouseDragged(.left, at: cursor)
             }
-            Haptics.fire(enabled: config.window.haptics)
+            if snap.haptics {
+                MainHop.async { Haptics.fire(enabled: true) }
+            }
         case .dragMoved(let to):
             guard dragOn else { break }
             ClickEmitter.mouseDragged(.left, at: to)
@@ -351,53 +378,37 @@ final class GestureEngine: @unchecked Sendable {
             guard dragOn else { break }
             ClickEmitter.mouseUp(.left, at: at)
         case .tap:
-            runSlot(GestureSlots.ID.free3Tap, config: config)
+            runSlot(GestureSlots.ID.free3Tap, snap: snap)
             TutorialPrefs.post(.trackpadMiddleClick)
         }
     }
 
-    @MainActor
-    private func makeContext(config: SanneConfig) -> ActionContext {
-        ActionContext(
-            window: session.window,
-            dockApp: session.dockApp,
-            gap: CGFloat(config.window.gap),
-            haptics: config.window.haptics
-        )
-    }
-
-    @MainActor
     @discardableResult
-    private func runSlot(_ slotId: String, config: SanneConfig, clickCount: Int = 1) -> Bool {
-        guard let resolved = BindingResolver.resolve(
-            slotId: slotId,
-            config: config,
-            frontmostBundleId: session.frontmostBundle
-        ), resolved.enabled else {
+    private func runSlot(_ slotId: String, snap: RuntimeSnapshot, clickCount: Int = 1) -> Bool {
+        guard snap.slotOn(slotId), let actionId = snap.actionId(for: slotId) else {
             return false
         }
-        var ctx = makeContext(config: config)
+        var ctx = ActionContext(
+            window: session.window,
+            dockApp: session.dockApp,
+            gap: CGFloat(snap.gap),
+            haptics: snap.haptics
+        )
         ctx.clickCount = clickCount
-        Log.info(.gesture, "slot=\(slotId) → \(resolved.actionId)")
+        Log.info(.gesture, "slot=\(slotId) → \(actionId)")
         GestureActivity.announce(slotId: slotId)
-        return perform(resolved.actionId, context: ctx, config: config)
+        let hud = snap.hudEnabled
+        MainHop.async {
+            _ = GestureEngine.shared.perform(actionId, context: ctx, hudEnabled: hud)
+        }
+        return true
     }
 
-    /// Runs an action and announces it in the HUD.
-    ///
-    /// The engine's only route to `ActionRunner.run`, so "every committed action announces exactly
-    /// once" is a property of the code shape rather than of remembering to add a call: `runSlot`
-    /// covers the free-space, Dock and menubar paths, `applyTitlebar` calls it directly for the one
-    /// commit that needs the resolved action before running it, and `handleMagicMouse` for the one
-    /// that needs a click count. Nothing else in this file may call the runner.
-    ///
-    /// Announcing only on success keeps the HUD honest — a snap with no window under the cursor did
-    /// not happen and must not claim to.
     @MainActor
     @discardableResult
-    private func perform(_ actionId: String, context: ActionContext, config: SanneConfig) -> Bool {
+    private func perform(_ actionId: String, context: ActionContext, hudEnabled: Bool) -> Bool {
         let result = ActionRunner.execute(actionId, context: context)
-        if config.hud.enabled {
+        if hudEnabled {
             if result.ok, ActionCatalog.announcesInHUD(actionId), let title = result.hudTitle {
                 HUDController.shared.show(title: title)
             } else if !result.ok, let err = result.errorTitle {
@@ -407,17 +418,15 @@ final class GestureEngine: @unchecked Sendable {
         return result.ok
     }
 
-    /// When cycle-thirds is on and the short L/R slot still maps to the default half snap,
-    /// magnitude picks half → third → two-thirds. A remapped slot stays remapped.
     private func continuousThirdsAction(
         slotId: String,
-        resolved: ResolvedGesture,
+        actionId: String,
         direction: SwipeDirection,
         magnitude: CGFloat,
         cycle: Bool
     ) -> String? {
         guard cycle else { return nil }
-        switch (slotId, resolved.actionId, direction) {
+        switch (slotId, actionId, direction) {
         case (GestureSlots.ID.tbLeft, ActionCatalog.ID.snapLeftHalf, .left):
             return ActionCatalog.actionId(for: LayoutGeometry.continuousLeftLayout(magnitude: magnitude))
         case (GestureSlots.ID.tbRight, ActionCatalog.ID.snapRightHalf, .right):
@@ -429,67 +438,72 @@ final class GestureEngine: @unchecked Sendable {
 
     // MARK: - Titlebar
 
-    @MainActor
-    private func applyTitlebar(_ outcome: SwipePinchRecognizer.Outcome, config: SanneConfig) {
-        let gap = CGFloat(config.window.gap)
+    private func applyTitlebar(_ outcome: SwipePinchRecognizer.Outcome, snap: RuntimeSnapshot) {
+        let gap = CGFloat(snap.gap)
         let window = session.window
 
         switch outcome.gesture {
         case .pinch(let inward):
             if outcome.isPreview {
                 session.pinchCandidate = inward
-                WindowManager.shared.hidePreview()
+                hopHidePreview()
                 return
             }
             let inward = session.pinchCandidate ?? inward
             session.pinchCandidate = nil
-            let slotId = GestureSlots.titlebarPinchSlot(inward: inward)
-            _ = runSlot(slotId, config: config)
+            runSlot(GestureSlots.titlebarPinchSlot(inward: inward), snap: snap)
 
         case .swipe(let fingers, let direction):
-            let cycle = config.keyboard.cycleThirds
+            let cycle = snap.cycleThirds
             guard let slotId = GestureSlots.titlebarSwipeSlot(
                 fingers: fingers,
                 direction: direction,
                 magnitude: outcome.magnitude,
                 cycleThirds: cycle
             ) else {
-                if outcome.isCommit { WindowManager.shared.hidePreview() }
+                if outcome.isCommit { hopHidePreview() }
                 return
             }
 
-            guard let resolved = BindingResolver.resolve(
-                slotId: slotId,
-                config: config,
-                frontmostBundleId: session.frontmostBundle
-            ), resolved.enabled else {
-                if outcome.isCommit { WindowManager.shared.hidePreview() }
+            guard snap.slotOn(slotId), let resolvedAction = snap.actionId(for: slotId) else {
+                if outcome.isCommit { hopHidePreview() }
                 return
             }
 
             let actionId = continuousThirdsAction(
                 slotId: slotId,
-                resolved: resolved,
+                actionId: resolvedAction,
                 direction: direction,
                 magnitude: outcome.magnitude,
                 cycle: cycle
-            ) ?? resolved.actionId
+            ) ?? resolvedAction
 
             if outcome.isPreview {
-                if let layout = ActionCatalog.snapLayout(for: actionId), config.window.showPreview {
+                if let layout = ActionCatalog.snapLayout(for: actionId), snap.showPreview {
                     if session.loggedPreviewLayout != layout {
                         session.loggedPreviewLayout = layout
                         Log.debug(.gesture, "titlebar preview \(layout.rawValue) slot=\(slotId)")
+                        MainHop.async {
+                            WindowManager.shared.showPreview(layout: layout, gap: gap, for: window)
+                        }
                     }
-                    WindowManager.shared.showPreview(layout: layout, gap: gap, for: window)
-                } else {
-                    WindowManager.shared.hidePreview()
+                } else if session.loggedPreviewLayout != nil {
+                    session.loggedPreviewLayout = nil
+                    hopHidePreview()
                 }
             } else if outcome.isCommit {
-                WindowManager.shared.hidePreview()
+                hopHidePreview()
                 GestureActivity.announce(slotId: slotId)
-                let ctx = makeContext(config: config)
-                perform(actionId, context: ctx, config: config)
+                let ctx = ActionContext(
+                    window: window,
+                    dockApp: session.dockApp,
+                    gap: gap,
+                    haptics: snap.haptics
+                )
+                let hud = snap.hudEnabled
+                MainHop.async {
+                    _ = GestureEngine.shared.perform(actionId, context: ctx, hudEnabled: hud)
+                }
                 if ActionCatalog.snapLayout(for: actionId) != nil
                     || actionId == ActionCatalog.ID.minimize
                     || actionId == ActionCatalog.ID.restore
@@ -503,10 +517,13 @@ final class GestureEngine: @unchecked Sendable {
         }
     }
 
+    private func hopHidePreview() {
+        MainHop.async { WindowManager.shared.hidePreview() }
+    }
+
     // MARK: - Dock
 
-    @MainActor
-    private func applyDock(_ outcome: SwipePinchRecognizer.Outcome, config: SanneConfig) {
+    private func applyDock(_ outcome: SwipePinchRecognizer.Outcome, snap: RuntimeSnapshot) {
         if outcome.isPreview {
             if case .pinch(let inward) = outcome.gesture {
                 session.pinchCandidate = inward
@@ -515,10 +532,6 @@ final class GestureEngine: @unchecked Sendable {
         }
         guard outcome.isCommit else { return }
 
-        if session.dockApp == nil {
-            session.dockApp = ZoneActions.dockApp()
-        }
-
         switch outcome.gesture {
         case .swipe(_, let direction):
             guard let slotId = GestureSlots.dockSwipeSlot(direction: direction) else { return }
@@ -526,7 +539,7 @@ final class GestureEngine: @unchecked Sendable {
                 Log.warn(.gesture, "dock gesture — no app under cursor")
                 return
             }
-            _ = runSlot(slotId, config: config)
+            _ = runSlot(slotId, snap: snap)
             if slotId == GestureSlots.ID.dockUp {
                 TutorialPrefs.post(.dockActivate)
             }
@@ -539,7 +552,7 @@ final class GestureEngine: @unchecked Sendable {
                 Log.warn(.gesture, "dock pinch — no app under cursor")
                 return
             }
-            _ = runSlot(slotId, config: config)
+            _ = runSlot(slotId, snap: snap)
 
         default:
             break
@@ -548,15 +561,14 @@ final class GestureEngine: @unchecked Sendable {
 
     // MARK: - Menubar
 
-    @MainActor
-    private func applyMenubar(_ outcome: SwipePinchRecognizer.Outcome, config: SanneConfig) {
+    private func applyMenubar(_ outcome: SwipePinchRecognizer.Outcome, snap: RuntimeSnapshot) {
         if outcome.isPreview { return }
         guard outcome.isCommit else { return }
 
         switch outcome.gesture {
         case .swipe(_, let direction):
             guard let slotId = GestureSlots.menubarSwipeSlot(direction: direction) else { return }
-            _ = runSlot(slotId, config: config)
+            _ = runSlot(slotId, snap: snap)
         default:
             break
         }

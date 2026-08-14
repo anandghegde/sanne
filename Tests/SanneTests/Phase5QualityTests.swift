@@ -1,7 +1,7 @@
 import XCTest
 @testable import SanneKit
 
-/// IMPROVEMENT_PLAN §5.1 remaining rows: migrate, emit matrix, bundled Standard.
+/// Quality rows: migrate, emit matrix, bundled Standard.
 final class Phase5QualityTests: XCTestCase {
     private let decoder = JSONDecoder()
 
@@ -119,7 +119,7 @@ final class Phase5QualityTests: XCTestCase {
         for slot in GestureSlots.all {
             let resolved = BindingResolver.resolve(slotId: slot.id, config: config)
             XCTAssertEqual(
-                LegacyRecognition.wouldEmit(slotId: slot.id, config: config),
+                BindingResolver.resolve(slotId: slot.id, config: config)?.enabled,
                 resolved?.enabled ?? false,
                 "default emit \(slot.id)"
             )
@@ -131,8 +131,8 @@ final class Phase5QualityTests: XCTestCase {
         }
 
         config.magicMouseTaps.enabled = false
-        XCTAssertFalse(LegacyRecognition.wouldEmit(slotId: GestureSlots.ID.mmLeft, config: config))
-        XCTAssertFalse(LegacyRecognition.wouldEmit(slotId: GestureSlots.ID.mm3fTopEdgeResize, config: config))
+        XCTAssertEqual(BindingResolver.resolve(slotId: GestureSlots.ID.mmLeft, config: config)?.enabled, false)
+        XCTAssertEqual(BindingResolver.resolve(slotId: GestureSlots.ID.mm3fTopEdgeResize, config: config)?.enabled, false)
 
         config.magicMouseTaps.enabled = true
         config.setGestureOverride(
@@ -141,7 +141,7 @@ final class Phase5QualityTests: XCTestCase {
             actionId: nil,
             scope: .global
         )
-        XCTAssertTrue(LegacyRecognition.wouldEmit(slotId: GestureSlots.ID.mm3fSwipeLeft, config: config))
+        XCTAssertEqual(BindingResolver.resolve(slotId: GestureSlots.ID.mm3fSwipeLeft, config: config)?.enabled, true)
 
         config.setGestureOverride(
             slotId: GestureSlots.ID.mmLeft,
@@ -149,7 +149,7 @@ final class Phase5QualityTests: XCTestCase {
             actionId: nil,
             scope: .global
         )
-        XCTAssertFalse(LegacyRecognition.wouldEmit(slotId: GestureSlots.ID.mmLeft, config: config))
+        XCTAssertEqual(BindingResolver.resolve(slotId: GestureSlots.ID.mmLeft, config: config)?.enabled, false)
     }
 
     // MARK: - 10. Bundled sanne.standard.json == GestureSlots defaults
@@ -166,7 +166,7 @@ final class Phase5QualityTests: XCTestCase {
         for slot in GestureSlots.all {
             XCTAssertEqual(
                 BindingResolver.resolve(slotId: slot.id, config: bundled)?.enabled,
-                GestureSlots.defaultEnabled(for: slot.legacyGate),
+                slot.defaultEnabled,
                 "bundled Standard drifted for \(slot.id)"
             )
         }

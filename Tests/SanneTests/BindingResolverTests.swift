@@ -8,40 +8,26 @@ final class BindingResolverTests: XCTestCase {
 
     // MARK: - Precedence matrix
 
-    func testLegacyEnabledMatchesEnableLegacyGateForEverySlot() {
-        for slot in GestureSlots.all {
-            var config = SanneConfig()
-            config.enableLegacyGate(slotId: slot.id)
-            XCTAssertTrue(
-                GestureSlots.legacyEnabled(slot.legacyGate, config: config),
-                "enableLegacyGate(\(slot.id)) must turn on \(slot.legacyGate)"
-            )
-        }
-    }
-
-    func testOverrideEnabledTrueRevivesSlotEvenWhenLegacyGateIsOff() {
+    func testOverrideEnabledTrueRevivesSlotThatDefaultsOff() {
         var config = SanneConfig()
-        config.magicMouseTaps.leftTap = false
+        config.version = 2
         config.setGestureOverride(
-            slotId: GestureSlots.ID.mmLeft,
+            slotId: slotId,
             enabled: true,
             actionId: nil,
             scope: .global
         )
         XCTAssertEqual(
-            BindingResolver.resolve(slotId: GestureSlots.ID.mmLeft, config: config)?.enabled,
+            BindingResolver.resolve(slotId: slotId, config: config)?.enabled,
             true
         )
-        XCTAssertTrue(LegacyRecognition.wouldEmit(slotId: GestureSlots.ID.mmLeft, config: config))
     }
 
     func testDefaultWhenNoOverrides() {
-        var config = SanneConfig()
-        config.trackpad.threeFingerSwipes = true
-
-        let resolved = BindingResolver.resolve(slotId: slotId, config: config)
+        let config = SanneConfig()
+        let resolved = BindingResolver.resolve(slotId: GestureSlots.ID.mmLeft, config: config)
         XCTAssertEqual(resolved?.enabled, true)
-        XCTAssertEqual(resolved?.actionId, ActionCatalog.ID.browserForward)
+        XCTAssertEqual(resolved?.actionId, ActionCatalog.ID.clickLeft)
         XCTAssertEqual(resolved?.isModified, false)
     }
 

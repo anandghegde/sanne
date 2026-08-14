@@ -29,8 +29,9 @@ final class AppController: ObservableObject {
 
     private var sleepObservers: [NSObjectProtocol] = []
     private var appObservers: [NSObjectProtocol] = []
-    private var pollTimer: Timer?
+    private var axTimer: Timer?
     private var wakeTask: Task<Void, Never>?
+    private var hidWatcher: HIDDeviceWatcher?
 
     private init() {}
 
@@ -43,6 +44,7 @@ final class AppController: ObservableObject {
 
         refreshPermissions()
         refreshConflicts()
+        rebuildSnapshot()
         Log.info(.ax, "Accessibility trusted=\(accessibilityTrusted)")
 
         if WelcomePrefs.shouldShowOnboarding(hasCompletedWelcome: WelcomePrefs.hasCompletedWelcome) {
@@ -66,15 +68,12 @@ final class AppController: ObservableObject {
         observeSleepWake()
         observeDisplayChanges()
         observeConfig()
+        observeFrontmostApp()
+        observeWorkspaceApps()
+        observeBecomeActive()
+        startHIDWatcher()
+        startAXTimerIfNeeded()
         LaunchAtLogin.apply(desired: configStore.config.launchAtLogin)
-
-        pollTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                self?.refreshPermissions()
-                self?.refreshConflicts()
-                self?.refreshDevices()
-            }
-        }
 
         Log.info(.app, "Sanne started. Open Settings → Debug Log, then tap Magic Mouse.")
         Log.info(.app, "launchAtLogin config=\(configStore.config.launchAtLogin) sm=\(LaunchAtLogin.status.rawValue) bundled=\(LaunchAtLogin.isBundledApp)")
@@ -85,6 +84,8 @@ final class AppController: ObservableObject {
         KeyboardSnapMonitor.shared.stop()
         ModifierDragController.shared.stop()
         TouchDeviceManager.shared.stop()
+        hidWatcher?.stop()
+        hidWatcher = nil
         wakeTask?.cancel()
         wakeTask = nil
         for o in sleepObservers {
@@ -95,7 +96,9 @@ final class AppController: ObservableObject {
             NotificationCenter.default.removeObserver(o)
         }
         appObservers.removeAll()
-        pollTimer?.invalidate()
+        axTimer?.invalidate()
+        axTimer = nil
+        configStore.flushPendingSave()
     }
 
     func refreshPermissions() {
@@ -103,10 +106,10 @@ final class AppController: ObservableObject {
         if trusted != accessibilityTrusted {
             accessibilityTrusted = trusted
             if trusted {
-                // Keep the welcome window open so Start Tutorial is reachable.
                 startMultitouch()
             }
         }
+        startAXTimerIfNeeded()
     }
 
     func requestAccessibility() {
@@ -131,44 +134,21 @@ final class AppController: ObservableObject {
         configStore.update { $0.paused.toggle() }
     }
 
-    var isPaused: Bool { configStore.config.paused }
+    var isPaused: Bool { RuntimeSnapshotStore.shared.snapshot.paused }
 
-    /// Global pause **or** frontmost app has a full (all-scope) override.
     var isEffectivelyPaused: Bool {
-        let cfg = configStore.config
-        if cfg.paused { return true }
+        let snap = RuntimeSnapshotStore.shared.snapshot
+        return snap.paused || snap.pauseWindowGestures && snap.pauseMagicMouse && snap.pauseKeyboard
+    }
+
+    var isMagicMousePaused: Bool { RuntimeSnapshotStore.shared.snapshot.pauseMagicMouse }
+    var isWindowGesturesPaused: Bool { RuntimeSnapshotStore.shared.snapshot.pauseWindowGestures }
+    var isKeyboardPaused: Bool { RuntimeSnapshotStore.shared.snapshot.pauseKeyboard }
+    var isModifierDragPaused: Bool { RuntimeSnapshotStore.shared.snapshot.pauseModifierDrag }
+
+    func rebuildSnapshot() {
         let front = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
-        return cfg.isDisabled(forFrontmostBundleId: front)
-    }
-
-    private var frontmostBundleId: String? {
-        NSWorkspace.shared.frontmostApplication?.bundleIdentifier
-    }
-
-    /// Pause Magic Mouse taps for global pause or matching per-app scope.
-    var isMagicMousePaused: Bool {
-        let cfg = configStore.config
-        if cfg.paused { return true }
-        return cfg.pausesMagicMouse(forFrontmostBundleId: frontmostBundleId)
-    }
-
-    /// Pause titlebar / Dock / menubar / free-space trackpad.
-    var isWindowGesturesPaused: Bool {
-        let cfg = configStore.config
-        if cfg.paused { return true }
-        return cfg.pausesWindowGestures(forFrontmostBundleId: frontmostBundleId)
-    }
-
-    var isKeyboardPaused: Bool {
-        let cfg = configStore.config
-        if cfg.paused { return true }
-        return cfg.pausesKeyboard(forFrontmostBundleId: frontmostBundleId)
-    }
-
-    var isModifierDragPaused: Bool {
-        let cfg = configStore.config
-        if cfg.paused { return true }
-        return cfg.pausesModifierDrag(forFrontmostBundleId: frontmostBundleId)
+        RuntimeSnapshotStore.shared.rebuild(config: configStore.config, frontmostBundleId: front)
     }
 
     private func wireGestures() {
@@ -194,7 +174,6 @@ final class AppController: ObservableObject {
     }
 
     private func startMultitouch() {
-        // Trackpad path (titlebar gestures). Magic Mouse taps start inside GestureEngine.
         switch TouchDeviceManager.shared.start() {
         case .success(let n):
             applyTrackpadBindResult(count: n, context: "start")
@@ -215,7 +194,6 @@ final class AppController: ObservableObject {
             multitouchError = "Trackpad present but not bound"
             Log.warn(.app, "Trackpad visible via IOKit but MultitouchSupport bound 0 devices (\(context))")
         } else {
-            // Mouse-only Mac: not a trackpad success.
             multitouchRunning = false
             multitouchError = nil
             Log.info(.app, "No trackpad devices (\(context)); Magic Mouse taps may still work")
@@ -233,8 +211,7 @@ final class AppController: ObservableObject {
         let nc = NSWorkspace.shared.notificationCenter
         let stopForSleep: (String) -> Void = { reason in
             TouchDeviceManager.shared.stop()
-            MagicMouseTapController.shared.stop()
-            Log.info(.touch, "Stopped multitouch (trackpad + Magic Mouse) for \(reason)")
+            Log.info(.touch, "Stopped multitouch devices for \(reason)")
         }
         sleepObservers.append(
             nc.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { _ in
@@ -273,6 +250,68 @@ final class AppController: ObservableObject {
         )
     }
 
+    private func observeFrontmostApp() {
+        appObservers.append(
+            NSWorkspace.shared.notificationCenter.addObserver(
+                forName: NSWorkspace.didActivateApplicationNotification,
+                object: nil,
+                queue: .main
+            ) { _ in
+                Task { @MainActor in
+                    AppController.shared.rebuildSnapshot()
+                    AppController.shared.objectWillChange.send()
+                }
+            }
+        )
+    }
+
+    private func observeWorkspaceApps() {
+        let nc = NSWorkspace.shared.notificationCenter
+        appObservers.append(
+            nc.addObserver(forName: NSWorkspace.didLaunchApplicationNotification, object: nil, queue: .main) { _ in
+                Task { @MainActor in AppController.shared.refreshConflicts() }
+            }
+        )
+        appObservers.append(
+            nc.addObserver(forName: NSWorkspace.didTerminateApplicationNotification, object: nil, queue: .main) { _ in
+                Task { @MainActor in AppController.shared.refreshConflicts() }
+            }
+        )
+    }
+
+    private func observeBecomeActive() {
+        appObservers.append(
+            NotificationCenter.default.addObserver(
+                forName: NSApplication.didBecomeActiveNotification,
+                object: nil,
+                queue: .main
+            ) { _ in
+                Task { @MainActor in AppController.shared.refreshPermissions() }
+            }
+        )
+    }
+
+    private func startHIDWatcher() {
+        let watcher = HIDDeviceWatcher {
+            DispatchQueue.main.async {
+                AppController.shared.refreshDevices()
+            }
+        }
+        watcher.start()
+        hidWatcher = watcher
+    }
+
+    private func startAXTimerIfNeeded() {
+        axTimer?.invalidate()
+        axTimer = nil
+        guard !accessibilityTrusted else { return }
+        axTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.refreshPermissions()
+            }
+        }
+    }
+
     private func rebindAfterWake(reason: String) {
         wakeTask?.cancel()
         wakeTask = Task { @MainActor in
@@ -283,13 +322,10 @@ final class AppController: ObservableObject {
                 let result = await Task.detached {
                     TouchDeviceManager.shared.restart()
                 }.value
-                await Task.detached {
-                    MagicMouseTapController.shared.restart()
-                }.value
                 switch result {
                 case .success(let n):
                     applyTrackpadBindResult(count: n, context: "\(reason) attempt \(i + 1)")
-                    let mouseCount = MagicMouseTapController.shared.monitoredDeviceCount
+                    let mouseCount = TouchDeviceManager.shared.magicMouseDeviceCount
                     if n > 0 || mouseCount > 0 || (!hasTrackpad && !hasMagicMouse) {
                         Log.info(.touch, "Rebound after \(reason) attempt \(i + 1): \(TouchDeviceManager.shared.stats)")
                         refreshPermissions()
@@ -316,11 +352,11 @@ final class AppController: ObservableObject {
         ) { _ in
             Task { @MainActor in
                 LaunchAtLogin.apply(desired: ConfigStore.shared.config.launchAtLogin)
+                AppController.shared.rebuildSnapshot()
             }
         }
     }
 
-    /// Toggle launch-at-login preference and register/unregister the login item.
     func setLaunchAtLogin(_ enabled: Bool) {
         configStore.update { $0.launchAtLogin = enabled }
         if !LaunchAtLogin.isBundledApp {
@@ -331,7 +367,6 @@ final class AppController: ObservableObject {
         case .success:
             break
         case .failure:
-            // Keep config as user chose; status may be requiresApproval.
             break
         }
     }

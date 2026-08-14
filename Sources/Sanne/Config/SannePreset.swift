@@ -32,7 +32,7 @@ struct SannePreset: Equatable, Identifiable {
         ),
         enabledSlotIds: Set(
             GestureSlots.all
-                .filter { GestureSlots.defaultEnabled(for: $0.legacyGate) }
+                .filter(\.defaultEnabled)
                 .map(\.id)
         )
     )
@@ -73,7 +73,7 @@ struct SannePreset: Equatable, Identifiable {
         if presetId == minimalId {
             return minimal.enabledSlotIds.contains(slot.id)
         }
-        return GestureSlots.defaultEnabled(for: slot.legacyGate)
+        return slot.defaultEnabled
     }
 
     /// Same as `defaultEnabled(for:presetId:)` once the config is on slot enablement (v2).

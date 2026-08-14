@@ -81,7 +81,7 @@ final class ConfigRoundTripTests: XCTestCase {
     func testBundledStandardSlotDefaultsMatchCode() throws {
         for slot in GestureSlots.all {
             XCTAssertEqual(
-                GestureSlots.legacyEnabled(slot.legacyGate, config: .default),
+                slot.defaultEnabled,
                 GestureSlots.defaultEnabled(for: slot.legacyGate),
                 "\(slot.id) defaultEnabled drifted from Sanne Standard"
             )
@@ -136,11 +136,6 @@ final class ConfigRoundTripTests: XCTestCase {
 
     func testFullConfigRoundTrip() throws {
         var config = SanneConfig()
-        config.trackpad.threeFingerSwipes = true
-        config.trackpad.fourFingerSwipes = true
-        config.trackpad.fourFingerTap = true
-        config.trackpad.tipTap = true
-        config.magicMouseTaps.threeFingerSwipes = true
         config.hud.enabled = false
 
         let scriptId = UUID()
@@ -291,5 +286,18 @@ final class ConfigRoundTripTests: XCTestCase {
 
         let emptyOverNil = GestureOverrideEntry().layered(over: nil)
         XCTAssertTrue(emptyOverNil.isEmpty)
+    }
+
+    func testNewEncodeOmitsDeletedLegacyKeys() throws {
+        let config = SanneConfig()
+        let data = try encoder.encode(config)
+        let object = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        let mm = object["magicMouseTaps"] as? [String: Any]
+        XCTAssertNil(mm?["leftTap"])
+        XCTAssertNil(mm?["rightTap"])
+        XCTAssertNotNil(mm?["multiClick"])
+        let tp = object["trackpad"] as? [String: Any]
+        XCTAssertNil(tp?["threeFingerSwipes"])
+        XCTAssertNotNil(tp?["sensitivity"])
     }
 }
