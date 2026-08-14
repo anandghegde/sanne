@@ -13,44 +13,61 @@ struct ActionContext {
     var clickCount: Int = 1
 }
 
+struct ActionRunResult {
+    var ok: Bool
+    var hudTitle: String?
+    var errorTitle: String?
+}
+
 /// Executes catalog action IDs.
 @MainActor
 enum ActionRunner {
     @discardableResult
     static func run(_ actionId: String, context: ActionContext) -> Bool {
+        execute(actionId, context: context).ok
+    }
+
+    @discardableResult
+    static func execute(_ actionId: String, context: ActionContext) -> ActionRunResult {
         if actionId == ActionCatalog.ID.none
             || actionId == ActionCatalog.ID.drag
             || actionId == ActionCatalog.ID.moveWindow
+            || actionId == ActionCatalog.ID.resizeWindow
         {
-            return false
+            return ActionRunResult(ok: false, hudTitle: nil, errorTitle: nil)
         }
 
+        var hudTitle: String?
+        var errorTitle: String?
         let ok: Bool
+        if let layout = ActionCatalog.snapLayout(for: actionId) {
+            let result = snap(layout, context)
+            ok = result.ok
+            if result.restored {
+                hudTitle = "Restore"
+            } else if !ok {
+                errorTitle = "No window"
+            }
+        } else {
         switch actionId {
-        case ActionCatalog.ID.snapLeftHalf: ok = snap(.leftHalf, context)
-        case ActionCatalog.ID.snapRightHalf: ok = snap(.rightHalf, context)
-        case ActionCatalog.ID.snapTopHalf: ok = snap(.topHalf, context)
-        case ActionCatalog.ID.snapBottomHalf: ok = snap(.bottomHalf, context)
-        case ActionCatalog.ID.snapTopLeft: ok = snap(.topLeft, context)
-        case ActionCatalog.ID.snapTopRight: ok = snap(.topRight, context)
-        case ActionCatalog.ID.snapBottomLeft: ok = snap(.bottomLeft, context)
-        case ActionCatalog.ID.snapBottomRight: ok = snap(.bottomRight, context)
-        case ActionCatalog.ID.snapLeftThird: ok = snap(.leftThird, context)
-        case ActionCatalog.ID.snapCenterThird: ok = snap(.centerThird, context)
-        case ActionCatalog.ID.snapRightThird: ok = snap(.rightThird, context)
-        case ActionCatalog.ID.snapLeftTwoThirds: ok = snap(.leftTwoThirds, context)
-        case ActionCatalog.ID.snapRightTwoThirds: ok = snap(.rightTwoThirds, context)
-        case ActionCatalog.ID.snapMaximize: ok = snap(.maximize, context)
-        case ActionCatalog.ID.snapCenter: ok = snap(.center, context)
-        case ActionCatalog.ID.snapCenterLarge: ok = snap(.centerLarge, context)
-        case ActionCatalog.ID.snapAlmostMaximize: ok = snap(.almostMaximize, context)
-
+        case ActionCatalog.ID.restore:
+            if let w = context.window {
+                ok = WindowManager.shared.restoreFrame(of: w)
+            } else {
+                ok = WindowManager.shared.restoreFocused()
+            }
+            if ok {
+                hudTitle = "Restore"
+            } else {
+                errorTitle = "No window"
+            }
         case ActionCatalog.ID.minimize:
             if let w = context.window {
                 ok = WindowManager.shared.minimize(w)
             } else {
                 ok = WindowManager.shared.minimizeUnderCursor()
             }
+            if !ok { errorTitle = "No window" }
 
         case ActionCatalog.ID.close:
             if let w = context.window {
@@ -58,6 +75,7 @@ enum ActionRunner {
             } else {
                 ok = WindowManager.shared.closeUnderCursor()
             }
+            if !ok { errorTitle = "No window" }
 
         case ActionCatalog.ID.fullscreen:
             if let w = context.window {
@@ -65,11 +83,21 @@ enum ActionRunner {
             } else {
                 ok = WindowManager.shared.fullscreenUnderCursor()
             }
+            if !ok { errorTitle = "No window" }
 
         case ActionCatalog.ID.moveDisplayLeft:
             ok = moveDisplay(-1, context)
         case ActionCatalog.ID.moveDisplayRight:
             ok = moveDisplay(1, context)
+
+        case ActionCatalog.ID.moveSpaceLeft:
+            let result = moveSpace(-1, context)
+            ok = result.ok
+            if !ok { errorTitle = result.error }
+        case ActionCatalog.ID.moveSpaceRight:
+            let result = moveSpace(1, context)
+            ok = result.ok
+            if !ok { errorTitle = result.error }
 
         case ActionCatalog.ID.clickLeft:
             ClickEmitter.click(.left, clickCount: max(1, context.clickCount))
@@ -99,6 +127,7 @@ enum ActionRunner {
                 ok = ZoneActions.activateDockApp(app)
             } else {
                 ok = false
+                errorTitle = "No window"
             }
         case ActionCatalog.ID.dockHide:
             if let app = context.dockApp ?? ZoneActions.dockApp() {
@@ -214,12 +243,19 @@ enum ActionRunner {
                 ok = true
             } else if let bundleId = ActionCatalog.parseLaunchApp(actionId) {
                 ok = launchApplication(bundleId: bundleId)
+                if ok { hudTitle = ActionCatalog.hudTitle(for: actionId) }
             } else if let uuid = ActionCatalog.parseCustomAction(actionId) {
-                ok = runCustomAction(uuid: uuid)
+                ok = runCustomAction(uuid: uuid, errorTitle: &errorTitle)
+                if ok { hudTitle = ActionCatalog.hudTitle(for: actionId) }
             } else {
                 Log.warn(.gesture, "Unknown actionId=\(actionId)")
                 ok = false
             }
+        }
+        }
+
+        if hudTitle == nil, ok {
+            hudTitle = ActionCatalog.hudTitle(for: actionId)
         }
 
         if ok {
@@ -228,14 +264,14 @@ enum ActionRunner {
         } else {
             Log.warn(.gesture, "action \(actionId) failed")
         }
-        return ok
+        return ActionRunResult(ok: ok, hudTitle: hudTitle, errorTitle: errorTitle)
     }
 
-    private static func snap(_ layout: WindowLayout, _ context: ActionContext) -> Bool {
+    private static func snap(_ layout: WindowLayout, _ context: ActionContext) -> (ok: Bool, restored: Bool) {
         if let w = context.window {
-            return WindowManager.shared.snap(window: w, layout: layout, gap: context.gap)
+            return WindowManager.shared.snapDetailed(window: w, layout: layout, gap: context.gap)
         }
-        return WindowManager.shared.snapWindowUnderCursor(layout: layout, gap: context.gap)
+        return WindowManager.shared.snapWindowUnderCursorDetailed(layout: layout, gap: context.gap)
     }
 
     private static func moveDisplay(_ direction: Int, _ context: ActionContext) -> Bool {
@@ -243,6 +279,17 @@ enum ActionRunner {
             return WindowManager.shared.moveToAdjacentDisplay(window: w, direction: direction, gap: context.gap)
         }
         return WindowManager.shared.moveFocusedToAdjacentDisplay(direction: direction, gap: context.gap)
+    }
+
+    private static func moveSpace(_ direction: Int, _ context: ActionContext) -> (ok: Bool, error: String?) {
+        let enabled = ConfigStore.shared.config.experimental.windowToSpace
+        let window = context.window ?? WindowManager.shared.focusedWindow()
+        switch SpaceMover.move(window: window, direction: direction, enabled: enabled) {
+        case .success:
+            return (true, nil)
+        case .failure(let failure):
+            return (false, SpaceMover.hudTitle(for: failure))
+        }
     }
 
     private static func launchApplication(bundleId: String) -> Bool {
@@ -265,24 +312,23 @@ enum ActionRunner {
 
     /// Runs a user-defined script action.
     ///
-    /// Fire-and-forget by design: the gesture pipeline runs on the event tap's thread, so waiting
-    /// on a script would stall input. `true` therefore means "dispatched", and script failures are
-    /// reported through `Log` rather than through the return value.
-    private static func runCustomAction(uuid: UUID) -> Bool {
+    /// Fire-and-forget: `true` means dispatched. Failures are logged; a full pool is a HUD error.
+    private static func runCustomAction(uuid: UUID, errorTitle: inout String?) -> Bool {
         guard let def = ActionCatalog.customAction(id: uuid) else {
-            // Binding outlived its definition (deleted def, or an imported config). Treat as `none`.
             Log.warn(.gesture, "action.custom: no definition for \(uuid.uuidString)")
+            errorTitle = "No window"
             return false
         }
         guard def.isRunnable else {
             Log.warn(.gesture, "action.custom '\(def.displayName)': empty payload")
+            errorTitle = "No window"
             return false
         }
 
         switch def.kind {
         case .shell:
-            // `-l` so the script sees the user's normal PATH from their zsh profile.
-            runProcess(label: def.displayName, launchPath: "/bin/zsh", arguments: ["-lc", def.payload])
+            // `zsh -c` on purpose: a login shell would load `.zprofile` on every gesture.
+            runProcess(label: def.displayName, launchPath: "/bin/zsh", arguments: ["-c", def.payload])
         case .shortcut:
             runProcess(label: def.displayName, launchPath: "/usr/bin/shortcuts", arguments: ["run", def.payload])
         case .appleScript:
@@ -397,6 +443,7 @@ private func dispatchCustomAction(label: String, _ work: @escaping @Sendable () 
     // worse than one that never ran at all — so a full pool drops the invocation and says so.
     guard customActionSlots.wait(timeout: .now()) == .success else {
         Log.warn(.gesture, "action.custom '\(label)': \(customActionSlotCount) scripts already running — skipped")
+        Task { @MainActor in HUDController.shared.show(title: "Already running") }
         return
     }
     customActionQueue.async {

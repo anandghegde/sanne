@@ -58,15 +58,25 @@ final class HUDController {
         setAlphaImmediately(1, on: panel)
         panel.orderFrontRegardless()
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.dwell) { [weak self] in
-            self?.fadeOut(token: token)
+        let dwell = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0.80 : Self.dwell
+        DispatchQueue.main.asyncAfter(deadline: .now() + dwell) { [weak self] in
+            guard let self else { return }
+            if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+                self.hideIfCurrent(token)
+            } else {
+                self.fadeOut(token: token)
+            }
         }
     }
 
     /// Removes the HUD at once, cancelling any pending fade.
     func hide() {
         generation += 1
-        guard let panel else { return }
+        hideIfCurrent(generation)
+    }
+
+    private func hideIfCurrent(_ token: Int) {
+        guard token == generation, let panel else { return }
         setAlphaImmediately(1, on: panel)
         panel.orderOut(nil)
     }

@@ -1,10 +1,10 @@
 # Sanne — Progress & Plan
 
-**Last updated:** 2026-08-10  
-**Current phase:** Phase 1 (MVP) + Phase 2 product polish  
-**Overall:** ~94% MVP · Phase 2: packaging (DMG scripts + release docs); notarization optional · BTT/Multitouch parity features (free-space + tip-tap + MM 3F swipes, script actions, per-app bindings, action HUD) are **code complete, hardware QA pending**
+**Last updated:** 2026-08-14  
+**Current phase:** Post-0.2.0 product (IMPROVEMENT_PLAN Phases 0–4.2 code landed; 5.2 hardware QA next)  
+**Overall:** ~96% MVP · Phase 2: packaging (DMG scripts + release docs); notarization optional · BTT/Multitouch parity features (free-space + tip-tap + MM 3F swipes, script actions, per-app bindings, action HUD) are **code complete, hardware QA pending** · UX/maintainability plan Phases 0–4.2 implemented (5.1 tests green; 5.2/5.3 hardware still open)
 
-Living document. Update statuses here as work lands. Scope detail lives in [MVP_SCOPE.md](./MVP_SCOPE.md) and [PRD.md](./PRD.md); step-by-step execution of the BTT/Multitouch parity plan — what each step delivered, what is proven vs merely compiling, and what to pick up next — is tracked in [PLAN_PROGRESS.md](./PLAN_PROGRESS.md).
+Living document. Update statuses here as work lands. Scope detail lives in [MVP_SCOPE.md](./MVP_SCOPE.md) and [PRD.md](./PRD.md); step-by-step execution of the BTT/Multitouch parity plan — what each step delivered, what is proven vs merely compiling, and what to pick up next — is tracked in [PLAN_PROGRESS.md](./PLAN_PROGRESS.md). Post-0.2.0 UX, feature, and maintainability work is tracked in [IMPROVEMENT_PLAN.md](./IMPROVEMENT_PLAN.md).
 
 ---
 
@@ -112,7 +112,7 @@ Goal: prove hard APIs; no separate throwaway spike (lives in **Sanne** itself).
 
 | Item | Status | Notes |
 |------|--------|--------|
-| Sanne Standard preset | ✅ | Bundled JSON + code defaults |
+| Sanne Standard preset | ✅ | Bundled JSON + code defaults; Minimal is a second map on Settings → Presets |
 | Per-feature toggles | ✅ | MM / Windows / Trackpad sections |
 | Reset to Standard | ✅ | |
 | Debug Log tab | ✅ | |
@@ -140,15 +140,15 @@ Goal: prove hard APIs; no separate throwaway spike (lives in **Sanne** itself).
 | Menubar zone gestures | 🟡 | L/R cycle windows; down hide others; up unminimize |
 | Thirds / long-swipe layouts | 🟡 | Geometry + long titlebar swipe + keyboard cycle |
 | Move window to adjacent display | 🟡 | 3F titlebar + ⌃⌥⌘←/→; relative frame map |
-| Keyboard snap (⌃⌥+arrows) | 🟡 | KeyboardSnapMonitor; Settings → Keyboard |
+| Keyboard snap (⌃⌥+arrows) | 🟡 | Slot family + CGEvent tap; ↓ restores; Settings → Keyboard |
 | Modifier + drag move/resize | 🟡 | ⌥⌘ move · ⌃⌘ resize; Settings → Windows |
 | Magic Mouse 2F top-edge move | 🟡 | Fingers on top of surface + move mouse → drag window under cursor |
 | Per-app rules | 🟡 | Pause scope: all / Magic Mouse / window gestures / keyboard+drag — plus per-app gesture bindings (see E) |
 | Import / export config | 🟡 | JSON via Settings → Home (includes `gestureOverrides`, `appGestureOverrides`, `customActions`, `hud`) |
 | Full gesture remap editor | 🟡 | Settings → Gestures; catalog + freeform keystroke + launch app + scripts |
 | Tutorial + cheat sheet | 🟡 | Menu + Settings; live signals for MM tap / titlebar snap / middle-click |
-| GitHub Releases + optional Sparkle | 🟡 | Notes skeleton `docs/releases/0.1.0.md`; publish when repo is public |
-| Homebrew cask | ⬜ | Sketch in docs/RELEASING.md |
+| GitHub Releases + optional Sparkle | 🟡 | Menu + Advanced check GitHub Releases; Sparkle not added (zero extra deps) |
+| Homebrew cask | 🟡 | Sketch at `docs/homebrew/sanne.rb` |
 | Notarized DMG | 🟡 | Scripts ready; run with SANNE_SIGN_IDENTITY + notary profile |
 
 ---
@@ -157,12 +157,12 @@ Goal: prove hard APIs; no separate throwaway spike (lives in **Sanne** itself).
 
 | Item | Status |
 |------|--------|
-| Tap-drag polish / gaming mode | ⬜ |
-| Spaces window move | ⬜ |
+| Tap-drag polish / gaming mode | 🟡 | Gaming mode: physical right-hold + left tap, off by default |
+| Spaces window move | 🟡 | Feature-flagged `experimental.windowToSpace`; HUD on failure |
 | HUD labels (landed early — see E) | 🟡 |
 | Hyper key + simple remaps | ⬜ |
 | Shell / Shortcuts / AppleScript actions (landed early — see E) | 🟡 |
-| Preset gallery | ⬜ |
+| Preset gallery | 🟡 | Standard + Minimal on Settings → Presets; `presetId` selects slot defaults |
 
 ---
 
@@ -228,6 +228,9 @@ Items 14–21 above are the hardware QA sweep for the BTT/Multitouch parity work
 | 2026-08-10 | `PLAN_PROGRESS.md`: step-by-step tracker for the BTT/Multitouch parity plan — per-step delivery detail, what is proven vs merely compiling, and the remaining steps (code review, `SanneTests` target, hardware QA, config round-trip, release prep) |
 | 2026-08-10 | Steps 7–8 + automated step 10: code review of free-space / MM 3F / scripts / resolver / HUD; fix `removeCustomAction` to clear per-app remaps; package split (`SanneKit` library + thin `Sanne` executable); `SanneTests` with 35 pure-logic tests green |
 | 2026-08-10 | **0.2.0 release prep** (hardware QA skipped): VERSION + CHANGELOG + `docs/releases/0.2.0.md`; Developer ID DMG + notarize |
+| 2026-08-14 | IMPROVEMENT_PLAN Phase 3: Settings page split, MM extract + dead zone, GestureSession, WindowMover + CGWindowNumber restore, keyboard slots + event tap, ActionRunner HUD/usleep/zsh -c (78 tests) |
+| 2026-08-14 | IMPROVEMENT_PLAN Phase 4.1: Minimal preset, Settings search, live gesture highlight, conflict coach, device empty states, accessibility / Reduce Motion (97 tests) |
+| 2026-08-14 | IMPROVEMENT_PLAN Phase 5.1 tests + Phase 4.2: continuous thirds, window-to-Space flag, MM 3F resize, gaming mode, safe mode, GitHub update check, Homebrew cask sketch |
 
 ---
 

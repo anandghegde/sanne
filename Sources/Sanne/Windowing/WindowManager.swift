@@ -15,17 +15,30 @@ final class WindowManager {
             Log.error(.window, "No window under cursor")
             return false
         }
-        return snap(window: window, layout: layout, gap: gap, showPreviewOnly: showPreviewOnly)
+        return snap(window: window, layout: layout, gap: gap, showPreviewOnly: showPreviewOnly).ok
     }
 
     /// Snap a window captured at gesture start (preferred over cursor-at-commit).
     func snap(window: AXUIElement, layout: WindowLayout, gap: CGFloat) -> Bool {
+        snapDetailed(window: window, layout: layout, gap: gap).ok
+    }
+
+    func snapDetailed(window: AXUIElement, layout: WindowLayout, gap: CGFloat) -> (ok: Bool, restored: Bool) {
         snap(window: window, layout: layout, gap: gap, showPreviewOnly: false, allowRestoreOnRepeat: true)
+    }
+
+    func snapWindowUnderCursorDetailed(layout: WindowLayout, gap: CGFloat) -> (ok: Bool, restored: Bool) {
+        guard Permissions.isAccessibilityTrusted else { return (false, false) }
+        guard let window = windowAt(appKitPoint: NSEvent.mouseLocation) else {
+            Log.error(.window, "No window under cursor")
+            return (false, false)
+        }
+        return snap(window: window, layout: layout, gap: gap, showPreviewOnly: false, allowRestoreOnRepeat: true)
     }
 
     func snapFocused(layout: WindowLayout, gap: CGFloat) -> Bool {
         guard let window = focusedWindow() else { return false }
-        return snap(window: window, layout: layout, gap: gap, showPreviewOnly: false)
+        return snap(window: window, layout: layout, gap: gap, showPreviewOnly: false).ok
     }
 
     /// Cycle left-side layouts on the focused window (half → third → two-thirds).
@@ -38,7 +51,7 @@ final class WindowManager {
             layout = .leftHalf
         }
         // Bypass restore-on-same so cycle advances instead of undoing.
-        return snap(window: window, layout: layout, gap: gap, showPreviewOnly: false, allowRestoreOnRepeat: !enableThirds)
+        return snap(window: window, layout: layout, gap: gap, showPreviewOnly: false, allowRestoreOnRepeat: !enableThirds).ok
     }
 
     /// Cycle right-side layouts on the focused window.
@@ -50,7 +63,7 @@ final class WindowManager {
         } else {
             layout = .rightHalf
         }
-        return snap(window: window, layout: layout, gap: gap, showPreviewOnly: false, allowRestoreOnRepeat: !enableThirds)
+        return snap(window: window, layout: layout, gap: gap, showPreviewOnly: false, allowRestoreOnRepeat: !enableThirds).ok
     }
 
     /// Move focused window to the adjacent display (left = −1, right = +1), preserving relative size/position.
@@ -79,13 +92,7 @@ final class WindowManager {
         let fromVis = fromScreen.visibleFrame
         let toVis = toScreen.visibleFrame
         // Relative position within source visible frame (AppKit space for visibleFrame).
-        let primaryH = NSScreen.screens.first?.frame.height ?? 0
-        let currentAppKit = CGRect(
-            x: current.minX,
-            y: primaryH - current.maxY,
-            width: current.width,
-            height: current.height
-        )
+        let currentAppKit = LayoutGeometry.axToAppKit(current)
 
         let relX = fromVis.width > 0 ? (currentAppKit.minX - fromVis.minX) / fromVis.width : 0
         let relY = fromVis.height > 0 ? (currentAppKit.minY - fromVis.minY) / fromVis.height : 0
@@ -101,17 +108,17 @@ final class WindowManager {
         let targetAppKit = CGRect(x: newX, y: newY, width: newW, height: newH)
         let targetAX = LayoutGeometry.appKitToAX(targetAppKit)
 
-        var pid: pid_t = 0
-        AXUIElementGetPid(window, &pid)
-        let title = stringAttr(window, kAXTitleAttribute as String) ?? ""
-        let id = WindowIdentity(pid: pid, title: title)
+        guard let id = WindowIdentityResolver.identity(of: window) else {
+            Log.error(.window, "move display: no window identity")
+            return false
+        }
         restore.remember(id, frame: current)
         lastLayout[id] = nil
 
         let ok = setFrame(window, targetAX)
         Log.info(
             .window,
-            "move display dir=\(direction) title=\(title.prefix(40)) " +
+            "move display dir=\(direction) pid=\(id.pid) win=\(id.windowNumber) " +
             "→ (\(Int(targetAX.minX)),\(Int(targetAX.minY)) \(Int(targetAX.width))×\(Int(targetAX.height))) ok=\(ok)"
         )
         return ok
@@ -128,10 +135,28 @@ final class WindowManager {
     }
 
     func lastAppliedLayout(for window: AXUIElement) -> WindowLayout? {
-        var pid: pid_t = 0
-        AXUIElementGetPid(window, &pid)
-        let title = stringAttr(window, kAXTitleAttribute as String) ?? ""
-        return lastLayout[WindowIdentity(pid: pid, title: title)]
+        guard let id = WindowIdentityResolver.identity(of: window) else { return nil }
+        return lastLayout[id]
+    }
+
+    func restoreFrame(of window: AXUIElement) -> Bool {
+        guard let id = WindowIdentityResolver.identity(of: window),
+              let prev = restore.restore(id)
+        else { return false }
+        lastLayout[id] = nil
+        let ok = setFrame(window, prev)
+        Log.info(.window, "restore action pid=\(id.pid) win=\(id.windowNumber) ok=\(ok)")
+        return ok
+    }
+
+    func restoreFocused() -> Bool {
+        guard let window = focusedWindow() else { return false }
+        return restoreFrame(of: window)
+    }
+
+    func storedRestoreFrame(of window: AXUIElement) -> CGRect? {
+        guard let id = WindowIdentityResolver.identity(of: window) else { return nil }
+        return restore.peek(id)
     }
 
     func minimize(_ window: AXUIElement) -> Bool {
@@ -187,14 +212,22 @@ final class WindowManager {
     func showPreview(layout: WindowLayout, gap: CGFloat, for window: AXUIElement? = nil) {
         let point: CGPoint
         if let window, let f = frame(of: window) {
-            // Preview on the screen that contains the window center (AX → AppKit).
-            let primaryH = NSScreen.screens.first?.frame.height ?? 0
-            let midAX = CGPoint(x: f.midX, y: f.midY)
-            point = CGPoint(x: midAX.x, y: primaryH - midAX.y)
+            point = LayoutGeometry.axPointToAppKit(CGPoint(x: f.midX, y: f.midY))
         } else {
             point = NSEvent.mouseLocation
         }
         guard let screen = LayoutGeometry.screenForAppKitPoint(point) else { return }
+
+        // Second same-layout swipe should preview the restore frame, not another left-half ghost.
+        if let window,
+           let id = WindowIdentityResolver.identity(of: window),
+           lastLayout[id] == layout,
+           let prev = restore.peek(id)
+        {
+            SnapPreviewController.shared.show(axFrame: prev)
+            return
+        }
+
         let target = LayoutGeometry.targetFrame(layout: layout, visibleFrameAppKit: screen.visibleFrame, gap: gap)
         SnapPreviewController.shared.show(axFrame: target)
     }
@@ -207,30 +240,29 @@ final class WindowManager {
         gap: CGFloat,
         showPreviewOnly: Bool,
         allowRestoreOnRepeat: Bool = true
-    ) -> Bool {
+    ) -> (ok: Bool, restored: Bool) {
         guard let current = frame(of: window) else {
             Log.error(.window, "snap: no frame")
-            return false
+            return (false, false)
         }
-        var pid: pid_t = 0
-        AXUIElementGetPid(window, &pid)
-        let title = stringAttr(window, kAXTitleAttribute as String) ?? ""
-        let id = WindowIdentity(pid: pid, title: title)
+        guard let id = WindowIdentityResolver.identity(of: window) else {
+            Log.error(.window, "snap: no window identity")
+            return (false, false)
+        }
 
         // Screen from window center, not live cursor (cursor may have left the titlebar).
-        let primaryH = NSScreen.screens.first?.frame.height ?? 0
-        let midAppKit = CGPoint(x: current.midX, y: primaryH - current.midY)
+        let midAppKit = LayoutGeometry.axPointToAppKit(CGPoint(x: current.midX, y: current.midY))
         guard let screen = LayoutGeometry.screenForAppKitPoint(midAppKit)
                 ?? LayoutGeometry.screenForAppKitPoint(NSEvent.mouseLocation)
         else {
             Log.error(.window, "snap: no screen")
-            return false
+            return (false, false)
         }
         let target = LayoutGeometry.targetFrame(layout: layout, visibleFrameAppKit: screen.visibleFrame, gap: gap)
 
         if showPreviewOnly {
             SnapPreviewController.shared.show(axFrame: target)
-            return true
+            return (true, false)
         }
 
         // Second application of the same layout → restore original frame (Swish/Rectangle behavior).
@@ -238,8 +270,8 @@ final class WindowManager {
             lastLayout[id] = nil
             SnapPreviewController.shared.hide()
             let ok = setFrame(window, prev)
-            Log.info(.window, "restore layout=\(layout.rawValue) title=\(title.prefix(40)) ok=\(ok)")
-            return ok
+            Log.info(.window, "restore layout=\(layout.rawValue) pid=\(id.pid) win=\(id.windowNumber) ok=\(ok)")
+            return (ok, true)
         }
 
         // Remember original only when starting a new snap sequence (not mid-cycle).
@@ -252,10 +284,10 @@ final class WindowManager {
         let ok = setFrame(window, target)
         Log.info(
             .window,
-            "snap \(layout.rawValue) title=\(title.prefix(40)) " +
+            "snap \(layout.rawValue) pid=\(id.pid) win=\(id.windowNumber) " +
             "→ (\(Int(target.minX)),\(Int(target.minY)) \(Int(target.width))×\(Int(target.height))) ok=\(ok)"
         )
-        return ok
+        return (ok, false)
     }
 
     func windowAt(appKitPoint: CGPoint) -> AXUIElement? {
@@ -273,6 +305,9 @@ final class WindowManager {
         for _ in 0..<10 {
             guard let c = cursor else { break }
             if stringAttr(c, kAXRoleAttribute as String) == (kAXWindowRole as String) {
+                var pid: pid_t = 0
+                AXUIElementGetPid(c, &pid)
+                if pid == ProcessInfo.processInfo.processIdentifier { return nil }
                 return c
             }
             var parent: CFTypeRef?
@@ -288,7 +323,11 @@ final class WindowManager {
         if AXUIElementCopyAttributeValue(element, kAXWindowAttribute as CFString, &winRef) == .success,
            let winRef
         {
-            return (winRef as! AXUIElement)
+            let win = winRef as! AXUIElement
+            var pid: pid_t = 0
+            AXUIElementGetPid(win, &pid)
+            if pid == ProcessInfo.processInfo.processIdentifier { return nil }
+            return win
         }
         return nil
     }
@@ -318,11 +357,20 @@ final class WindowManager {
         guard let pos = AXValueCreate(.cgPoint, &position),
               let sz = AXValueCreate(.cgSize, &size) else { return false }
         // Some apps need size-then-position (or both twice) to stick.
-        AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, sz)
-        AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, pos)
-        AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, sz)
-        AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, pos)
-        return true
+        let sizeErr1 = AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, sz)
+        let posErr1 = AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, pos)
+        let sizeErr2 = AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, sz)
+        let posErr2 = AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, pos)
+        let ok = (sizeErr1 == .success || sizeErr2 == .success)
+            && (posErr1 == .success || posErr2 == .success)
+        if !ok {
+            Log.warn(
+                .window,
+                "setFrame failed size=\(sizeErr1.rawValue)/\(sizeErr2.rawValue) " +
+                "pos=\(posErr1.rawValue)/\(posErr2.rawValue)"
+            )
+        }
+        return ok
     }
 
     private func pressButton(_ window: AXUIElement, _ attr: String) -> Bool {

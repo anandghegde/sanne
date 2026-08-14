@@ -89,6 +89,9 @@ enum ActionCatalog {
         static let fullscreen = "window.fullscreen"
         static let moveDisplayLeft = "window.moveDisplay.left"
         static let moveDisplayRight = "window.moveDisplay.right"
+        static let moveSpaceLeft = "window.moveSpace.left"
+        static let moveSpaceRight = "window.moveSpace.right"
+        static let restore = "window.restore"
 
         static let clickLeft = "click.left"
         static let clickRight = "click.right"
@@ -140,6 +143,8 @@ enum ActionCatalog {
         static let drag = "special.drag"
         /// Continuous window move (2F top-edge) — not remappable.
         static let moveWindow = "special.moveWindow"
+        /// Continuous window resize (3F top-edge) — not remappable.
+        static let resizeWindow = "special.resizeWindow"
 
         /// Prefix for freeform keystrokes: `keystroke.custom.<keyCode>.<flagsRaw>`
         static let customKeystrokePrefix = "keystroke.custom."
@@ -314,6 +319,9 @@ enum ActionCatalog {
         .init(id: ID.fullscreen, title: "Native fullscreen", category: .window, keywords: []),
         .init(id: ID.moveDisplayLeft, title: "Move to display left", category: .window, keywords: ["monitor"]),
         .init(id: ID.moveDisplayRight, title: "Move to display right", category: .window, keywords: ["monitor"]),
+        .init(id: ID.moveSpaceLeft, title: "Move to Space left", category: .window, keywords: ["desktop", "spaces", "experimental"]),
+        .init(id: ID.moveSpaceRight, title: "Move to Space right", category: .window, keywords: ["desktop", "spaces", "experimental"]),
+        .init(id: ID.restore, title: "Restore", category: .window, keywords: ["undo", "previous", "unsnap"]),
 
         .init(id: ID.clickLeft, title: "Left click", category: .clicks, keywords: ["primary"]),
         .init(id: ID.clickRight, title: "Right-click", category: .clicks, keywords: ["secondary", "context"]),
@@ -362,6 +370,7 @@ enum ActionCatalog {
 
         .init(id: ID.drag, title: "Drag (hold)", category: .special, keywords: ["tap-drag"]),
         .init(id: ID.moveWindow, title: "Move window (continuous)", category: .special, keywords: ["top-edge"]),
+        .init(id: ID.resizeWindow, title: "Resize window (continuous)", category: .special, keywords: ["top-edge", "resize"]),
     ]
 
     private static let byId: [String: Action] = {
@@ -433,12 +442,25 @@ enum ActionCatalog {
     /// those are exactly the actions whose effect can be off-screen or invisible.
     static func announcesInHUD(_ actionId: String) -> Bool {
         switch actionId {
-        case ID.none, ID.drag, ID.moveWindow,
+        case ID.none, ID.drag, ID.moveWindow, ID.resizeWindow,
              ID.clickLeft, ID.clickRight, ID.clickMiddle:
             return false
         default:
             return true
         }
+    }
+
+    /// HUD label for a successful fire. Scripts and launch-app say “Running {name}…”
+    /// so they do not imply the work finished.
+    static func hudTitle(for actionId: String) -> String {
+        if actionId == ID.restore { return "Restore" }
+        if let bid = parseLaunchApp(actionId) {
+            return "Running \(appDisplayName(bundleId: bid))…"
+        }
+        if let uuid = parseCustomAction(actionId), let def = customAction(id: uuid) {
+            return "Running \(def.displayName)…"
+        }
+        return title(for: actionId)
     }
 
     static func matches(_ action: Action, query: String) -> Bool {
@@ -452,6 +474,10 @@ enum ActionCatalog {
         guard actionId.hasPrefix("window.snap.") else { return nil }
         let raw = String(actionId.dropFirst("window.snap.".count))
         return WindowLayout(rawValue: raw)
+    }
+
+    static func actionId(for layout: WindowLayout) -> String {
+        "window.snap.\(layout.rawValue)"
     }
 
     /// Built-in catalog plus optional dynamic action (current remap) for the picker list.

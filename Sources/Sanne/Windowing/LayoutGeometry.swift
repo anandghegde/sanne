@@ -94,6 +94,16 @@ enum LayoutGeometry {
         return appKitToAX(appKitRect)
     }
 
+    /// Convert AppKit rect (bottom-left origin) to AX rect (top-left origin, primary display).
+    static func appKitToAX(_ rect: CGRect, primaryHeight: CGFloat) -> CGRect {
+        CGRect(x: rect.origin.x, y: primaryHeight - rect.maxY, width: rect.width, height: rect.height)
+    }
+
+    /// Convert AX rect (top-left origin, primary display) to AppKit rect (bottom-left origin).
+    static func axToAppKit(_ rect: CGRect, primaryHeight: CGFloat) -> CGRect {
+        CGRect(x: rect.origin.x, y: primaryHeight - rect.maxY, width: rect.width, height: rect.height)
+    }
+
     /// Cycle left-side snaps: half → third → two-thirds → half.
     static func nextLeftLayout(after current: WindowLayout?) -> WindowLayout {
         switch current {
@@ -114,14 +124,38 @@ enum LayoutGeometry {
         }
     }
 
+    /// Titlebar long-swipe cycle. Magnitude 0.22 steps: half → third → two-thirds.
+    static func continuousLeftLayout(magnitude: CGFloat, step: CGFloat = 0.22) -> WindowLayout {
+        switch Int(max(0, magnitude) / max(step, 0.01)) {
+        case 0: return .leftHalf
+        case 1: return .leftThird
+        default: return .leftTwoThirds
+        }
+    }
+
+    static func continuousRightLayout(magnitude: CGFloat, step: CGFloat = 0.22) -> WindowLayout {
+        switch Int(max(0, magnitude) / max(step, 0.01)) {
+        case 0: return .rightHalf
+        case 1: return .rightThird
+        default: return .rightTwoThirds
+        }
+    }
+
     /// Convert AppKit rect (bottom-left origin) to AX rect (top-left origin, primary display).
     static func appKitToAX(_ rect: CGRect) -> CGRect {
-        let primaryH = NSScreen.screens.first?.frame.height ?? 0
-        let topLeftY = primaryH - rect.maxY
-        return CGRect(x: rect.origin.x, y: topLeftY, width: rect.width, height: rect.height)
+        appKitToAX(rect, primaryHeight: NSScreen.screens.first?.frame.height ?? 0)
+    }
+
+    static func axToAppKit(_ rect: CGRect) -> CGRect {
+        axToAppKit(rect, primaryHeight: NSScreen.screens.first?.frame.height ?? 0)
     }
 
     static func appKitPointToAX(_ p: CGPoint) -> CGPoint {
+        let primaryH = NSScreen.screens.first?.frame.height ?? 0
+        return CGPoint(x: p.x, y: primaryH - p.y)
+    }
+
+    static func axPointToAppKit(_ p: CGPoint) -> CGPoint {
         let primaryH = NSScreen.screens.first?.frame.height ?? 0
         return CGPoint(x: p.x, y: primaryH - p.y)
     }

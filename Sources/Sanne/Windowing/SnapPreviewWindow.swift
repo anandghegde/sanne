@@ -7,7 +7,7 @@ final class SnapPreviewController {
     private var window: NSWindow?
 
     func show(axFrame: CGRect) {
-        let appKit = axToAppKit(axFrame)
+        let appKit = LayoutGeometry.axToAppKit(axFrame)
         if window == nil {
             let w = NSWindow(
                 contentRect: appKit,
@@ -32,12 +32,6 @@ final class SnapPreviewController {
 
     func hide() {
         window?.orderOut(nil)
-    }
-
-    private func axToAppKit(_ rect: CGRect) -> CGRect {
-        let primaryH = NSScreen.screens.first?.frame.height ?? 0
-        let y = primaryH - rect.origin.y - rect.height
-        return CGRect(x: rect.origin.x, y: y, width: rect.width, height: rect.height)
     }
 }
 

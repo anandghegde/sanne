@@ -48,6 +48,34 @@ final class ActionCatalogTests: XCTestCase {
         XCTAssertTrue(
             ActionCatalog.announcesInHUD(ActionCatalog.customActionId(UUID()))
         )
+        XCTAssertTrue(ActionCatalog.announcesInHUD(ActionCatalog.ID.restore))
+        XCTAssertTrue(ActionCatalog.announcesInHUD(ActionCatalog.launchAppId(bundleId: "com.apple.Safari")))
+        XCTAssertEqual(ActionCatalog.hudTitle(for: ActionCatalog.ID.restore), "Restore")
+        XCTAssertTrue(ActionCatalog.hudTitle(for: ActionCatalog.launchAppId(bundleId: "com.apple.Safari")).hasPrefix("Running "))
+    }
+
+    func testRestoreIsInCatalog() {
+        XCTAssertTrue(ActionCatalog.all.contains { $0.id == ActionCatalog.ID.restore })
+        XCTAssertEqual(ActionCatalog.title(for: ActionCatalog.ID.restore), "Restore")
+        XCTAssertNil(ActionCatalog.snapLayout(for: ActionCatalog.ID.restore))
+    }
+
+    func testSpaceAndResizeActionsAreInCatalog() {
+        XCTAssertTrue(ActionCatalog.all.contains { $0.id == ActionCatalog.ID.moveSpaceLeft })
+        XCTAssertTrue(ActionCatalog.all.contains { $0.id == ActionCatalog.ID.moveSpaceRight })
+        XCTAssertTrue(ActionCatalog.all.contains { $0.id == ActionCatalog.ID.resizeWindow })
+        XCTAssertFalse(ActionCatalog.announcesInHUD(ActionCatalog.ID.resizeWindow))
+        XCTAssertTrue(ActionCatalog.announcesInHUD(ActionCatalog.ID.moveSpaceLeft))
+        XCTAssertEqual(
+            ActionCatalog.actionId(for: .leftTwoThirds),
+            ActionCatalog.ID.snapLeftTwoThirds
+        )
+    }
+
+    func testKeyboardSlotsDefaultToRestoreOnDown() {
+        let down = GestureSlots.slot(id: GestureSlots.ID.kbDown)
+        XCTAssertEqual(down?.defaultActionId, ActionCatalog.ID.restore)
+        XCTAssertEqual(down?.group, .keyboard)
     }
 
     func testCustomActionLimitsMatchDocumentedDefaults() {

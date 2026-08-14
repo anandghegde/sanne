@@ -1,22 +1,93 @@
+import AppKit
 import SwiftUI
 
 struct CheatSheetView: View {
+    @ObservedObject private var store = ConfigStore.shared
     @State private var query = ""
-    @State private var categoryFilter: GestureCatalog.Entry.Category?
+    @State private var groupFilter: String?
 
-    private var filtered: [GestureCatalog.Entry] {
-        GestureCatalog.all.filter { entry in
-            if let categoryFilter, entry.category != categoryFilter { return false }
-            return GestureCatalog.matches(entry, query: query)
+    private var rows: [Row] {
+        slotRows + extraRows
+    }
+
+    private var slotRows: [Row] {
+        let front = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        return GestureSlots.all.map { slot in
+            let resolved = BindingResolver.resolve(
+                slotId: slot.id,
+                config: store.config,
+                frontmostBundleId: front
+            )
+            let actionId = resolved?.actionId ?? slot.defaultActionId
+            return Row(
+                id: slot.id,
+                groupTitle: slot.group.rawValue,
+                systemImage: GestureGlyph.systemImage(forGroup: slot.group),
+                title: slot.title,
+                actionTitle: ActionCatalog.title(for: actionId),
+                enabled: resolved?.enabled ?? false,
+                diagram: GestureDiagram.from(slotId: slot.id),
+                editRoute: PreferencesRoute.route(for: slot.group),
+                keywords: [slot.detail, slot.id, slot.group.rawValue, ActionCatalog.title(for: actionId)]
+            )
         }
     }
 
-    private var grouped: [(GestureCatalog.Entry.Category, [GestureCatalog.Entry])] {
-        let cats = GestureCatalog.Entry.Category.allCases
-        return cats.compactMap { cat in
-            let items = filtered.filter { $0.category == cat }
-            return items.isEmpty ? nil : (cat, items)
+    private var extraRows: [Row] {
+        [
+            Row(
+                id: "extra.modifier-move",
+                groupTitle: "Modifier + drag",
+                systemImage: "arrow.up.and.down.and.arrow.left.and.right",
+                title: "⌥⌘ + drag",
+                actionTitle: "Move window",
+                enabled: store.config.modifierDrag.enabled && store.config.modifierDrag.moveEnabled,
+                diagram: .trackpad(1, .drag),
+                editRoute: PreferencesRoute.windows,
+                keywords: ["option", "command", "move"]
+            ),
+            Row(
+                id: "extra.modifier-resize",
+                groupTitle: "Modifier + drag",
+                systemImage: "arrow.up.and.down.and.arrow.left.and.right",
+                title: "⌃⌘ + drag",
+                actionTitle: "Resize from nearest edge",
+                enabled: store.config.modifierDrag.enabled && store.config.modifierDrag.resizeEnabled,
+                diagram: .trackpad(1, .drag),
+                editRoute: PreferencesRoute.windows,
+                keywords: ["control", "command", "resize"]
+            ),
+            Row(
+                id: "extra.restore",
+                groupTitle: "Titlebar",
+                systemImage: "rectangle.topthird.inset.filled",
+                title: "Same snap twice",
+                actionTitle: "Restore previous frame",
+                enabled: store.config.titlebarGestures.enabled,
+                diagram: .trackpad(2, .doubleTap, zone: .topEdge),
+                editRoute: PreferencesRoute.windows,
+                keywords: ["undo", "toggle", "restore"]
+            ),
+        ]
+    }
+
+    private var filtered: [Row] {
+        rows.filter { row in
+            if let groupFilter, row.groupTitle != groupFilter { return false }
+            return row.matches(query)
         }
+    }
+
+    private var grouped: [(String, [Row])] {
+        let order = GestureSlots.Group.allCases.map(\.rawValue) + ["Keyboard", "Modifier + drag"]
+        return order.compactMap { title in
+            let items = filtered.filter { $0.groupTitle == title }
+            return items.isEmpty ? nil : (title, items)
+        }
+    }
+
+    private var filterTitles: [String] {
+        GestureSlots.Group.allCases.map(\.rawValue) + ["Keyboard", "Modifier + drag"]
     }
 
     var body: some View {
@@ -43,12 +114,12 @@ struct CheatSheetView: View {
 
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
-                        SanneFilterChip(title: "All", selected: categoryFilter == nil) {
-                            categoryFilter = nil
+                        SanneFilterChip(title: "All", selected: groupFilter == nil) {
+                            groupFilter = nil
                         }
-                        ForEach(GestureCatalog.Entry.Category.allCases) { cat in
-                            SanneFilterChip(title: cat.rawValue, selected: categoryFilter == cat) {
-                                categoryFilter = cat
+                        ForEach(filterTitles, id: \.self) { title in
+                            SanneFilterChip(title: title, selected: groupFilter == title) {
+                                groupFilter = title
                             }
                         }
                     }
@@ -72,24 +143,33 @@ struct CheatSheetView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 List {
-                    ForEach(grouped, id: \.0) { cat, items in
+                    ForEach(grouped, id: \.0) { title, items in
                         Section {
-                            ForEach(items) { entry in
+                            ForEach(items) { row in
                                 HStack(alignment: .center, spacing: 12) {
-                                    GestureDiagramView(diagram: Self.diagram(for: entry), size: 34)
+                                    GestureDiagramView(diagram: row.diagram, size: 34, active: row.enabled)
                                     VStack(alignment: .leading, spacing: 2) {
-                                        Text(entry.gesture)
+                                        Text(row.title)
                                             .font(.body.weight(.medium))
-                                        Text(entry.action)
+                                        Text(row.actionTitle)
                                             .font(.callout)
                                             .foregroundStyle(.secondary)
                                     }
                                     Spacer(minLength: 0)
+                                    if let route = row.editRoute {
+                                        Button("Edit in Settings") {
+                                            PreferencesRoute.request(route)
+                                            NotificationCenter.default.post(name: .sanneShowPreferences, object: nil)
+                                        }
+                                        .buttonStyle(.borderless)
+                                        .font(.caption)
+                                    }
                                 }
                                 .padding(.vertical, 3)
+                                .opacity(row.enabled ? 1 : 0.45)
                             }
                         } header: {
-                            Label(cat.rawValue, systemImage: cat.systemImage)
+                            Label(title, systemImage: items.first?.systemImage ?? "hand.draw")
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(.secondary)
                                 .textCase(nil)
@@ -103,53 +183,22 @@ struct CheatSheetView: View {
         .background(Color(nsColor: .windowBackgroundColor))
     }
 
-    /// Visual diagram for each cheat sheet entry.
-    static func diagram(for entry: GestureCatalog.Entry) -> GestureDiagram {
-        switch entry.id {
-        // Titlebar
-        case "tb-half-l": return .trackpad(2, .swipe(.left), zone: .topEdge)
-        case "tb-half-r": return .trackpad(2, .swipe(.right), zone: .topEdge)
-        case "tb-third-l": return .trackpad(2, .swipe(.left), zone: .topEdge, long: true)
-        case "tb-third-r": return .trackpad(2, .swipe(.right), zone: .topEdge, long: true)
-        case "tb-max": return .trackpad(2, .swipe(.up), zone: .topEdge)
-        case "tb-center": return .trackpad(2, .swipe(.up), zone: .topEdge, long: true)
-        case "tb-min": return .trackpad(2, .swipe(.down), zone: .topEdge)
-        case "tb-q-tl": return .trackpad(2, .swipe(.upLeft), zone: .topEdge)
-        case "tb-q-tr": return .trackpad(2, .swipe(.upRight), zone: .topEdge)
-        case "tb-q-bl": return .trackpad(2, .swipe(.downLeft), zone: .topEdge)
-        case "tb-q-br": return .trackpad(2, .swipe(.downRight), zone: .topEdge)
-        case "tb-close": return .trackpad(2, .pinchIn, zone: .topEdge)
-        case "tb-fs": return .trackpad(2, .pinchOut, zone: .topEdge)
-        case "tb-display": return .trackpad(3, .swipe(.leftRight), zone: .topEdge)
-        case "tb-restore": return .trackpad(2, .doubleTap, zone: .topEdge)
-        // Magic Mouse
-        case "mm-left": return .mouse(1, .tap, side: .left)
-        case "mm-right": return .mouse(1, .tap, side: .right)
-        case "mm-multi": return .mouse(1, .doubleTap)
-        case "mm-2f-mid": return .mouse(2, .touch)
-        case "mm-3f-mid": return .mouse(3, .touch)
-        case "mm-drag": return .mouse(1, .tapHoldDrag)
-        case "mm-2f-mc": return .mouse(2, .doubleTap)
-        case "mm-2f-up": return .mouse(2, .swipe(.up))
-        case "mm-2f-down": return .mouse(2, .swipe(.down))
-        case "mm-2f-lr": return .mouse(2, .swipe(.leftRight))
-        case "mm-2f-top": return .mouse(2, .drag, zone: .topEdge)
-        // Dock
-        case "dock-up": return .trackpad(2, .swipe(.up), zone: .bottomEdge)
-        case "dock-down": return .trackpad(2, .swipe(.down), zone: .bottomEdge)
-        case "dock-new": return .trackpad(2, .pinchOut, zone: .bottomEdge)
-        case "dock-quit": return .trackpad(2, .pinchIn, zone: .bottomEdge)
-        // Menubar
-        case "mb-next": return .trackpad(2, .swipe(.right), zone: .topEdge)
-        case "mb-prev": return .trackpad(2, .swipe(.left), zone: .topEdge)
-        case "mb-hide": return .trackpad(2, .swipe(.down), zone: .topEdge)
-        case "mb-unmin": return .trackpad(2, .swipe(.up), zone: .topEdge)
-        // Trackpad
-        case "tp-mid": return .trackpad(3, .tap)
-        case "tp-drag": return .trackpad(3, .drag)
-        // Keyboard & modifier drag
-        case "md-move", "md-resize": return .trackpad(1, .drag)
-        default: return .keyboard
+    struct Row: Identifiable {
+        let id: String
+        let groupTitle: String
+        let systemImage: String
+        let title: String
+        let actionTitle: String
+        let enabled: Bool
+        let diagram: GestureDiagram
+        let editRoute: String?
+        let keywords: [String]
+
+        func matches(_ query: String) -> Bool {
+            let q = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard !q.isEmpty else { return true }
+            let hay = ([title, actionTitle, groupTitle] + keywords).joined(separator: " ").lowercased()
+            return q.split(separator: " ").allSatisfy { hay.contains($0) }
         }
     }
 }

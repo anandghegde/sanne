@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct OnboardingView: View {
@@ -77,36 +78,26 @@ struct OnboardingView: View {
                             app.requestAccessibility()
                         }
                         .keyboardShortcut(.defaultAction)
+                        .buttonStyle(.borderedProminent)
 
-                        Button("Request Permission") {
-                            app.requestAccessibility()
+                        Spacer()
+
+                        Button("Quit") {
+                            NSApp.terminate(nil)
                         }
-                    }
-
-                    Spacer()
-
-                    if app.accessibilityTrusted {
+                    } else {
                         Button("Skip") {
-                            app.showOnboarding = false
-                            app.refreshPermissions()
-                            onFinished(false)
+                            finishWelcome(startTutorial: false)
                         }
                         .foregroundStyle(.secondary)
 
+                        Spacer()
+
                         Button("Start Tutorial") {
-                            app.showOnboarding = false
-                            app.refreshPermissions()
-                            onFinished(true)
+                            finishWelcome(startTutorial: true)
                         }
                         .keyboardShortcut(.defaultAction)
                         .buttonStyle(.borderedProminent)
-                    } else {
-                        Button("Continue") {
-                            app.showOnboarding = false
-                            app.refreshPermissions()
-                            onFinished(false)
-                        }
-                        .disabled(true)
                     }
                 }
 
@@ -120,5 +111,11 @@ struct OnboardingView: View {
         }
         .frame(width: 520, height: 520)
         .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    private func finishWelcome(startTutorial: Bool) {
+        WelcomePrefs.completeWelcome()
+        app.showOnboarding = false
+        onFinished(startTutorial)
     }
 }

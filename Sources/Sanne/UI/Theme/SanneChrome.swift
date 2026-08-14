@@ -90,6 +90,8 @@ struct SanneStatusPill: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
         .background(kind.color.opacity(0.12), in: Capsule())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(title)
     }
 }
 
@@ -198,6 +200,7 @@ enum GestureGlyph {
         case .dock: return "dock.rectangle"
         case .menubar: return "menubar.rectangle"
         case .trackpad: return "hand.draw"
+        case .keyboard: return "keyboard"
         }
     }
 }

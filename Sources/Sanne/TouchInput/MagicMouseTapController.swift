@@ -52,46 +52,19 @@ final class MagicMouseTapController: @unchecked Sendable {
     private var suppressUntilLift = false
     /// True when current suppress-until-lift was caused by a vertical surface scroll.
     private var suppressedForScroll = false
-    /// No single-finger clicks until this time. Extended by surface-scroll + OS scroll-wheel.
-    /// This is what Multitouch/BTT get right: residual finger repositions after scroll
-    /// look identical to taps (logs: false LEFT 0.4–0.75s after scroll cancel).
-    private var noTapUntil: Date?
+
     /// Last time any Magic Mouse contact was seen (gates scroll-wheel → noTap correlation).
     private var lastMouseTouchTime: Date?
     private var scrollWheelMonitor: Any?
     /// Hardware mouse-down while a contact is active (or just lifted).
     private var mouseClickGlobalMonitor: Any?
     private var mouseClickLocalMonitor: Any?
-    /// Physical press during this contact — synthetic tap would double-click with hardware.
-    private var physicalClickDuringContact = false
-    /// Last hardware click time (covers race: mouseDown just after we start finishTap path).
-    private var lastPhysicalClickTime: Date?
-    /// Suppress synthetic if physical click was this recent (BTT-style; design: ~30ms, use 80ms slack).
-    private static let physicalClickSuppressWindow: TimeInterval = 0.08
-    /// After we post a synthetic click/drag, local monitors can see our own CGEvent echo —
-    /// ignore mouseDown until this time so multi-click / next tap still work.
-    private var ignorePhysicalEchoUntil: Date?
-    private static let syntheticEchoIgnore: TimeInterval = 0.06
     private var callbackCount = 0
-
-    // MARK: Scroll-session lock (BTT/Multitouch-style)
-
-    /// How long after a *surface* scroll cancel we refuse taps (covers residual repositions).
-    private static let surfaceScrollLock: TimeInterval = 0.90
-    /// How long after a meaningful OS scroll-wheel event (live finger scroll).
-    /// Logs show residual repositions landing 0.4–0.9s after the last wheel event,
-    /// so 0.55 leaked ghost clicks — keep in line with surfaceScrollLock territory.
-    private static let wheelScrollLock: TimeInterval = 0.75
-    /// Momentum / inertia tail after last wheel event. Same leak as wheelScrollLock:
-    /// 0.40 let contacts beginning 0.4–0.9s after momentum end click (see sanne.log).
-    private static let momentumScrollLock: TimeInterval = 0.75
-    /// Residuals arrive in chains — a lift rejected by the scroll lock predicts another
-    /// residual right behind it, so each rejected lift re-arms the lock by this much.
-    private static let residualRepositionLock: TimeInterval = 0.40
-    /// Ignore scroll-wheel unless MM was touched recently (don't lock from trackpad).
-    private static let wheelTouchCorrelation: TimeInterval = 1.5
-    /// Ignore tiny wheel noise (pure taps must not arm the lock).
-    private static let wheelDeltaMin: CGFloat = 1.5
+    private var scrollLock = ScrollLock()
+    private var physicalGuard = PhysicalClickGuard()
+    /// Snapshot of config + pause so the Multitouch callback never hops to MainActor.
+    private var snapshot = SanneConfig()
+    private var snapshotPaused = false
     /// Contacts whose size never exceeds this are grazes (finger brushing while
     /// gripping / repositioning the mouse) — not taps. Size 0 = unavailable → skip check.
     private static let minTouchSize: Float = 0.08
@@ -148,7 +121,10 @@ final class MagicMouseTapController: @unchecked Sendable {
     }
 
     private var windowMovePhase: WindowMovePhase = .none
+    private var windowMoveKind: WindowMoverKind = .move
     private var multiStartY: Float = 0
+    /// Physical right button currently down (gaming mode).
+    private var physicalRightHeld = false
     /// Normalized Y ≥ this at multi-begin counts as top edge (norm Y increases toward top).
     private static let topEdgeMinY: Float = 0.58
     /// Cursor travel (pt) before committing window move.
@@ -156,38 +132,7 @@ final class MagicMouseTapController: @unchecked Sendable {
     /// Surface travel above this → treat as swipe, not window move.
     private static let windowMoveMaxSurface: Float = 0.055
 
-    /// Tap vs scroll / page-swipe thresholds.
-    /// Peak frame velocity is noisy — use net surface travel. Vertical slide = scroll;
-    /// horizontal slide = swipe-between-pages (macOS gesture breaks once we claim MT).
-    private struct Thresholds {
-        /// Shortest contact treated as a tap — anything quicker is a graze
-        /// (finger brushing the surface while gripping / repositioning the mouse).
-        let minDuration: TimeInterval
-        /// Longest stationary contact still treated as a tap (not a rest).
-        let maxDuration: TimeInterval
-        /// Vertical finger slide on surface → scroll; kill mid-gesture / reject on lift.
-        let surfaceScroll: Float
-        /// Horizontal travel for 1-finger back/forward (must clear this + axis dominance).
-        let pageSwipeMin: Float
-        /// Cursor jump while finger down (pointer moved a lot → not a stationary tap).
-        let cursorMove: CGFloat
-        /// Multi-finger swipe travel (normalized). Also the line between a 3-finger swipe and
-        /// a 3-finger middle-click: the same chord, told apart only by how far it moved.
-        let swipeMin: Float
 
-        init(sensitivity: Int) {
-            // s: −2 strict (fewer accidental clicks when scrolling) … +2 lenient (more taps count).
-            let s = max(-2, min(2, sensitivity))
-            // Higher sensitivity → longer allowed hold + more surface/cursor slop.
-            minDuration = 0.035 - Double(s) * 0.005        // 0.045…0.025s
-            maxDuration = 0.42 + Double(s) * 0.06          // 0.30…0.54s
-            surfaceScroll = Float(0.070 - Double(s) * 0.010) // 0.09…0.05
-            // Slightly lower than surfaceScroll so a decisive horizontal flick classifies as page swipe.
-            pageSwipeMin = Float(0.085 - Double(s) * 0.008) // ~0.10…0.07
-            cursorMove = CGFloat(18.0 + Double(s) * 4.0)    // 10…26 pt
-            swipeMin = Float(0.10 - Double(s) * 0.01)
-        }
-    }
 
     private static let callback: PrivateMT.ContactCallback = { device, touches, numTouches, timestamp, frame in
         MagicMouseTapController.shared.handle(
@@ -210,6 +155,14 @@ final class MagicMouseTapController: @unchecked Sendable {
         self.configProvider = config
         self.isPaused = paused
         self.onEvent = onEvent
+        refreshSnapshotUnlocked()
+        NotificationCenter.default.addObserver(
+            forName: .sanneConfigDidChange,
+            object: nil,
+            queue: nil
+        ) { [weak self] _ in
+            self?.refreshSnapshotFromMain()
+        }
 
         if started {
             Log.info(.tap, "MagicMouseTap already started devices=\(devices.count)")
@@ -229,17 +182,16 @@ final class MagicMouseTapController: @unchecked Sendable {
 
         var registered = 0
         for (i, device) in list.devices.enumerated() {
-            let builtIn = PrivateMT.deviceIsBuiltIn(device)
-            let opaque = PrivateMT.deviceIsOpaqueSurface(device)
-            let force = PrivateMT.deviceSupportsForce(device)
-            let isMouse = PrivateMT.isMagicMouseDevice(device)
+            let kind = PrivateMT.classify(device)
+            let isMouse = TouchDeviceClassifier.isMagicMouse(kind)
             Log.info(
                 .tap,
-                "device[\(i)] builtIn=\(builtIn) opaque=\(opaque) force=\(force) magicMouse=\(isMouse)"
+                "device[\(i)] kind=\(kind.rawValue) builtIn=\(PrivateMT.deviceIsBuiltIn(device)) " +
+                "opaque=\(PrivateMT.deviceIsOpaqueSurface(device)) force=\(PrivateMT.deviceSupportsForce(device))"
             )
 
             guard isMouse else {
-                Log.info(.tap, "  skip (not Magic Mouse)")
+                Log.info(.tap, "  skip (\(kind.rawValue) — not Magic Mouse)")
                 continue
             }
 
@@ -256,9 +208,8 @@ final class MagicMouseTapController: @unchecked Sendable {
 
         started = true
         callbackCount = 0
-        noTapUntil = nil
-        physicalClickDuringContact = false
-        lastPhysicalClickTime = nil
+        scrollLock = ScrollLock()
+        physicalGuard = PhysicalClickGuard()
         startScrollWheelMonitorUnlocked()
         startMouseClickMonitorUnlocked()
         Log.info(.tap, "MagicMouseTap RUNNING monitored=\(registered). Tap the mouse surface.")
@@ -278,12 +229,11 @@ final class MagicMouseTapController: @unchecked Sendable {
         stopScrollWheelMonitorUnlocked()
         stopMouseClickMonitorUnlocked()
         resetUnlocked(clearSuppress: true)
-        noTapUntil = nil
+        scrollLock = ScrollLock()
+        physicalGuard = PhysicalClickGuard()
         suppressedForScroll = false
         pageSwipeActive = false
         lastMouseTouchTime = nil
-        physicalClickDuringContact = false
-        lastPhysicalClickTime = nil
         DispatchQueue.main.async {
             TouchWindowMover.shared.end()
         }
@@ -319,32 +269,42 @@ final class MagicMouseTapController: @unchecked Sendable {
     private func noteScrollWheel(_ event: NSEvent) {
         let dy = abs(event.scrollingDeltaY)
         let dx = abs(event.scrollingDeltaX)
-        guard dy >= Self.wheelDeltaMin || dx >= Self.wheelDeltaMin else { return }
+        guard dy >= ScrollLock.wheelDeltaMin || dx >= ScrollLock.wheelDeltaMin else { return }
 
         lock.lock()
         // Only arm when Magic Mouse was recently touched — trackpad scroll must not kill MM taps.
         let recentTouch: Bool = {
             guard let t = lastMouseTouchTime else { return false }
-            return Date().timeIntervalSince(t) < Self.wheelTouchCorrelation
+            return Date().timeIntervalSince(t) < ScrollLock.wheelTouchCorrelation
         }()
         if recentTouch {
             let isMomentum = !event.momentumPhase.isEmpty
-            armNoTapUnlocked(for: isMomentum ? Self.momentumScrollLock : Self.wheelScrollLock, reason: isMomentum ? "wheel-momentum" : "wheel")
+            armNoTapUnlocked(for: isMomentum ? ScrollLock.momentum : ScrollLock.wheel, reason: isMomentum ? "wheel-momentum" : "wheel")
         }
         lock.unlock()
     }
 
     private func armNoTapUnlocked(for duration: TimeInterval, reason: String) {
-        let until = Date().addingTimeInterval(duration)
-        if let existing = noTapUntil, existing >= until { return }
-        noTapUntil = until
+        scrollLock.arm(for: duration)
         Log.debug(.tap, "no-tap until +\(String(format: "%.2f", duration))s (\(reason))")
     }
 
-    /// Contact must *begin* after the lock expires (not merely end after it).
     private func isTapBlockedUnlocked(contactStart: Date) -> Bool {
-        guard let until = noTapUntil else { return false }
-        return contactStart < until
+        scrollLock.isBlocked(contactStart: contactStart)
+    }
+
+    private func refreshSnapshotFromMain() {
+        let cfg = configProvider()
+        let paused = isPaused()
+        lock.lock()
+        snapshot = cfg
+        snapshotPaused = paused
+        lock.unlock()
+    }
+
+    private func refreshSnapshotUnlocked() {
+        snapshot = configProvider()
+        snapshotPaused = isPaused()
     }
 
     // MARK: Physical click → suppress synthetic (avoid double-click)
@@ -360,12 +320,12 @@ final class MagicMouseTapController: @unchecked Sendable {
             self.lock.lock()
             defer { self.lock.unlock() }
             guard self.started, self.mouseClickGlobalMonitor == nil else { return }
-            let mask: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown]
+            let mask: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown, .rightMouseUp]
             self.mouseClickGlobalMonitor = NSEvent.addGlobalMonitorForEvents(matching: mask) { [weak self] event in
-                self?.notePhysicalMouseDown(event)
+                self?.notePhysicalMouse(event)
             }
             self.mouseClickLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: mask) { [weak self] event in
-                self?.notePhysicalMouseDown(event)
+                self?.notePhysicalMouse(event)
                 return event
             }
             Log.debug(.tap, "physical-click monitor armed (suppress synthetic on hardware press)")
@@ -385,16 +345,20 @@ final class MagicMouseTapController: @unchecked Sendable {
         }
     }
 
-    private func notePhysicalMouseDown(_ event: NSEvent) {
-        // Ignore non-primary buttons; middle is rare on Magic Mouse hardware.
-        guard event.type == .leftMouseDown || event.type == .rightMouseDown else { return }
-
+    private func notePhysicalMouse(_ event: NSEvent) {
         lock.lock()
         defer { lock.unlock() }
         guard started else { return }
 
-        // Our own ClickEmitter posts can bounce into the local monitor when Sanne is frontmost.
-        if let until = ignorePhysicalEchoUntil, Date() < until {
+        if event.type == .rightMouseDown {
+            physicalRightHeld = true
+        } else if event.type == .rightMouseUp {
+            physicalRightHeld = false
+        }
+
+        guard event.type == .leftMouseDown || event.type == .rightMouseDown else { return }
+
+        if physicalGuard.shouldIgnoreEcho() {
             return
         }
 
@@ -403,15 +367,14 @@ final class MagicMouseTapController: @unchecked Sendable {
         // Contact just ended (lift + finishTap racing with this mouseDown — uncommon but cheap).
         let recentTouch: Bool = {
             guard let t = lastMouseTouchTime else { return false }
-            return Date().timeIntervalSince(t) < Self.physicalClickSuppressWindow
+            return Date().timeIntervalSince(t) < PhysicalClickGuard.suppressWindow
         }()
         // Drag hold arming also needs cancel so we don't post a second mouseDown.
         let pendingDrag = dragPhase == .pendingHold
 
         guard activeSingle || recentTouch || pendingDrag else { return }
 
-        physicalClickDuringContact = true
-        lastPhysicalClickTime = Date()
+        physicalGuard.notePhysicalClick()
         if dragPhase == .pendingHold {
             dragPhase = .none
         }
@@ -420,18 +383,16 @@ final class MagicMouseTapController: @unchecked Sendable {
     }
 
     private func armSyntheticEchoIgnoreUnlocked() {
-        ignorePhysicalEchoUntil = Date().addingTimeInterval(Self.syntheticEchoIgnore)
+        physicalGuard.armSyntheticEcho()
     }
 
-    /// True when this contact (or a just-ended one) already produced a hardware click.
     private func shouldSuppressForPhysicalClickUnlocked() -> Bool {
-        if physicalClickDuringContact { return true }
-        if let t = lastPhysicalClickTime,
-           Date().timeIntervalSince(t) < Self.physicalClickSuppressWindow
-        {
-            return true
-        }
-        return false
+        physicalGuard.shouldSuppress()
+    }
+
+    var monitoredDeviceCount: Int {
+        lock.lock(); defer { lock.unlock() }
+        return devices.count
     }
 
     func restart() {
@@ -457,12 +418,14 @@ final class MagicMouseTapController: @unchecked Sendable {
         lock.lock()
         callbackCount += 1
         let n = callbackCount
-        let paused = isPaused()
-        let full = configProvider()
+        let paused = snapshotPaused
+        let full = snapshot
         let cfg = full.magicMouseTaps
         lock.unlock()
 
         if !cfg.enabled || paused { return }
+
+        // BindingResolver is the enablement source (Phase 2.3). Tuning still comes from cfg.
 
         if n <= 40 || numTouches == 0 {
             Log.debug(.tap, "cb#\(n) device=\(device) num=\(numTouches) frame=\(frame)")
@@ -478,13 +441,14 @@ final class MagicMouseTapController: @unchecked Sendable {
             let swipeDx = netDx
             if pageSwipe {
                 // Finish 1-finger page swipe on lift (even if we never killed the session).
-                let thr = Thresholds(sensitivity: cfg.sensitivity)
+                let thr = MMThresholds(sensitivity: cfg.sensitivity)
                 let dx = swipeDx
                 resetUnlocked(clearSuppress: true)
                 pageSwipeActive = false
                 suppressedForScroll = false
                 lock.unlock()
-                if cfg.oneFingerSwipePages, abs(dx) >= thr.pageSwipeMin {
+                if (slotOn(GestureSlots.ID.mm1fSwipeLeft, full) || slotOn(GestureSlots.ID.mm1fSwipeRight, full)),
+                   abs(dx) >= thr.pageSwipeMin {
                     // macOS natural “swipe between pages”: content follows finger —
                     // finger right → previous page (back); finger left → next (forward).
                     emitPageSwipe(dx: dx)
@@ -497,7 +461,7 @@ final class MagicMouseTapController: @unchecked Sendable {
                 // Finger came off after a mid-gesture vertical scroll cancel.
                 // Arm a long no-tap window so residual repositions (0.4–0.75s later) don't click.
                 if wasScroll {
-                    armNoTapUnlocked(for: Self.surfaceScrollLock, reason: "surface-scroll-lift")
+                    armNoTapUnlocked(for: ScrollLock.surface, reason: "surface-scroll-lift")
                 }
                 lastMouseTouchTime = Date()
                 Log.debug(.tap, "lift while suppressed — no click" + (wasScroll ? " (scroll)" : ""))
@@ -517,7 +481,7 @@ final class MagicMouseTapController: @unchecked Sendable {
                 return
             }
             lock.unlock()
-            finishTap(cfg: cfg, reason: "num=\(numTouches)")
+            finishTap(cfg: cfg, full: full, reason: "num=\(numTouches)")
             return
         }
 
@@ -550,6 +514,7 @@ final class MagicMouseTapController: @unchecked Sendable {
                 touches: touches,
                 numTouches: numTouches,
                 cfg: cfg,
+                full: full,
                 n: n
             )
             return
@@ -562,7 +527,7 @@ final class MagicMouseTapController: @unchecked Sendable {
         let state = t.state
         let identifier = t.identifier
         let speed = hypot(t.velX, t.velY)
-        let thr = Thresholds(sensitivity: cfg.sensitivity)
+        let thr = MMThresholds(sensitivity: cfg.sensitivity)
 
         if n <= 40 {
             Log.debug(
@@ -595,7 +560,7 @@ final class MagicMouseTapController: @unchecked Sendable {
             netDx = 0
             netDy = 0
             pageSwipeActive = false
-            physicalClickDuringContact = false
+            physicalGuard.clearContactFlag()
             lastMouseTouchTime = Date()
 
             // Don't start tap-drag while scroll lock is active (residual after scroll).
@@ -658,7 +623,8 @@ final class MagicMouseTapController: @unchecked Sendable {
             let ady = abs(netDy)
             // Horizontal-dominant → swipe between pages (macOS gesture is broken under MT claim).
             // Ratio 1.05 allows slightly diagonal swipes users actually make.
-            if cfg.oneFingerSwipePages, adx > ady * 1.05 {
+            if slotOn(GestureSlots.ID.mm1fSwipeLeft, full) || slotOn(GestureSlots.ID.mm1fSwipeRight, full),
+               adx > ady * 1.05 {
                 pageSwipeActive = true
                 if dragPhase == .pendingHold { dragPhase = .none }
                 Log.debug(
@@ -670,7 +636,7 @@ final class MagicMouseTapController: @unchecked Sendable {
             // Vertical-dominant (or page swipe off) → scroll; no click on this contact.
             Log.debug(.tap, "cancel: surface scroll \(String(format: "%.3f", surfaceMove)) > \(String(format: "%.3f", thr.surfaceScroll))")
             // Arm early (not only on lift) so a quick residual can't sneak in before lift handler runs.
-            armNoTapUnlocked(for: Self.surfaceScrollLock, reason: "surface-scroll")
+            armNoTapUnlocked(for: ScrollLock.surface, reason: "surface-scroll")
             killSessionUnlocked(reason: "surface")
             return
         }
@@ -718,9 +684,10 @@ final class MagicMouseTapController: @unchecked Sendable {
         touches: UnsafeMutableRawPointer,
         numTouches: Int,
         cfg: MagicMouseTapConfig,
+        full: SanneConfig,
         n: Int
     ) {
-        let thr = Thresholds(sensitivity: cfg.sensitivity)
+        let thr = MMThresholds(sensitivity: cfg.sensitivity)
         var points: [CGPoint] = []
         var peakVel: Float = 0
         for i in 0..<numTouches {
@@ -775,11 +742,13 @@ final class MagicMouseTapController: @unchecked Sendable {
             if travel > multiMaxTravel { multiMaxTravel = travel }
             if peakVel > maxVelocity { maxVelocity = peakVel }
 
-            // Top-edge 2F + physical mouse move → drag window under cursor.
-            if cfg.twoFingerTopEdgeMove,
-               multiFingerCount == 2,
-               multiStartY >= Self.topEdgeMinY
-            {
+            // Top-edge 2F move / 3F resize + physical mouse move.
+            let topEdgeKind: WindowMoverKind? = {
+                if multiFingerCount == 2, slotOn(GestureSlots.ID.mm2fTopEdgeMove, full) { return .move }
+                if multiFingerCount == 3, slotOn(GestureSlots.ID.mm3fTopEdgeResize, full) { return .resize }
+                return nil
+            }()
+            if let kind = topEdgeKind, multiStartY >= Self.topEdgeMinY {
                 let cursorDist = hypot(cursor.x - touchStartCursor.x, cursor.y - touchStartCursor.y)
                 if windowMovePhase == .active {
                     // Large finger slide on surface → abandon move, treat as swipe later.
@@ -796,15 +765,17 @@ final class MagicMouseTapController: @unchecked Sendable {
                 {
                     cancelPendingTwoFingerMiddle()
                     windowMovePhase = .active
+                    windowMoveKind = kind
                     lastTwoFingerTapTime = nil
                     let haptics = true
                     Log.info(
                         .tap,
-                        "→ BEGIN WINDOW MOVE (2F top-edge) " +
+                        "→ BEGIN WINDOW \(kind == .resize ? "RESIZE" : "MOVE") " +
+                        "(\(multiFingerCount)F top-edge) " +
                         "cursorDist=\(String(format: "%.1f", cursorDist)) y=\(String(format: "%.2f", multiStartY))"
                     )
                     DispatchQueue.main.async {
-                        _ = TouchWindowMover.shared.begin(haptics: haptics)
+                        _ = TouchWindowMover.shared.begin(kind: kind, haptics: haptics)
                     }
                 }
             }
@@ -814,61 +785,19 @@ final class MagicMouseTapController: @unchecked Sendable {
     private func killSessionUnlocked(reason: String) {
         if dragPhase == .active {
             endActiveDragUnlocked(reason: "kill:\(reason)")
-            suppressUntilLift = true
-            suppressedForScroll = (reason == "surface")
-            return
-        }
-        if windowMovePhase == .active {
+        } else if windowMovePhase == .active {
             endWindowMoveUnlocked(reason: "kill:\(reason)")
-            suppressUntilLift = true
-            suppressedForScroll = (reason == "surface")
-            return
+        } else {
+            resetUnlocked(clearSuppress: false)
         }
         suppressUntilLift = true
         suppressedForScroll = (reason == "surface")
-        pageSwipeActive = false
-        activeTouchID = -1
-        multiFinger = false
-        multiFingerCount = 0
-        multiSwipeFingers = 0
-        dragPhase = .none
-        windowMovePhase = .none
-        touchStartX = 0
-        touchStartY = 0
-        touchStartTime = nil
-        touchStartCursor = .zero
-        maxSurfaceMove = 0
-        maxVelocity = 0
-        maxTouchSize = 0
-        netDx = 0
-        netDy = 0
-        multiMaxTravel = 0
-        multiStartY = 0
         Log.debug(.tap, "session dead until lift (\(reason))")
     }
 
     private func endActiveDragUnlocked(reason: String) {
         let point = CGEvent(source: nil)?.location ?? lastDragPostedCursor
-        dragPhase = .none
-        windowMovePhase = .none
-        activeTouchID = -1
-        multiFinger = false
-        multiFingerCount = 0
-        multiSwipeFingers = 0
-        touchStartX = 0
-        touchStartY = 0
-        touchStartTime = nil
-        touchStartCursor = .zero
-        maxSurfaceMove = 0
-        maxVelocity = 0
-        maxTouchSize = 0
-        netDx = 0
-        netDy = 0
-        pageSwipeActive = false
-        multiMaxTravel = 0
-        multiStartY = 0
-        suppressUntilLift = false
-        suppressedForScroll = false
+        resetUnlocked(clearSuppress: true)
         lastLeftTapTime = nil
         Log.info(.tap, "→ END DRAG (\(reason))")
         DispatchQueue.main.async {
@@ -877,34 +806,23 @@ final class MagicMouseTapController: @unchecked Sendable {
     }
 
     private func endWindowMoveUnlocked(reason: String) {
-        windowMovePhase = .none
-        activeTouchID = -1
-        multiFinger = false
-        multiFingerCount = 0
-        multiSwipeFingers = 0
-        dragPhase = .none
-        touchStartX = 0
-        touchStartY = 0
-        touchStartTime = nil
-        touchStartCursor = .zero
-        maxSurfaceMove = 0
-        maxVelocity = 0
-        maxTouchSize = 0
-        netDx = 0
-        netDy = 0
-        pageSwipeActive = false
-        multiMaxTravel = 0
-        multiStartY = 0
-        suppressUntilLift = false
-        suppressedForScroll = false
+        resetUnlocked(clearSuppress: true)
         Log.info(.tap, "→ END WINDOW MOVE (\(reason))")
         DispatchQueue.main.async {
             TouchWindowMover.shared.end()
         }
     }
 
-    private func finishTap(cfg: MagicMouseTapConfig, reason: String) {
-        let thr = Thresholds(sensitivity: cfg.sensitivity)
+    private func slotOn(_ id: String, _ config: SanneConfig) -> Bool {
+        BindingResolver.resolve(
+            slotId: id,
+            config: config,
+            frontmostBundleId: NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        )?.enabled ?? false
+    }
+
+    private func finishTap(cfg: MagicMouseTapConfig, full: SanneConfig, reason: String) {
+        let thr = MMThresholds(sensitivity: cfg.sensitivity)
 
         lock.lock()
         if dragPhase == .active {
@@ -936,10 +854,9 @@ final class MagicMouseTapController: @unchecked Sendable {
         let dy = netDy
         let tapBlocked = start.map { isTapBlockedUnlocked(contactStart: $0) } ?? false
         let physicalOwns = shouldSuppressForPhysicalClickUnlocked()
+        let rightHeld = physicalRightHeld
         resetUnlocked(clearSuppress: true)
-        // Keep physicalClickDuringContact cleared for next contact; lastPhysicalClickTime stays
-        // briefly so a late finishTap path still suppresses.
-        physicalClickDuringContact = false
+        physicalGuard.clearContactFlag()
         lastMouseTouchTime = Date()
         lock.unlock()
 
@@ -965,17 +882,20 @@ final class MagicMouseTapController: @unchecked Sendable {
         if multi {
             // If fingers started on top edge and cursor moved a lot, don't middle-click on lift.
             let cursorMoved = hypot(cursor.x - startCursor.x, cursor.y - startCursor.y)
-            if cfg.twoFingerTopEdgeMove,
-               multiCount == 2,
-               startY >= Self.topEdgeMinY,
+            if startY >= Self.topEdgeMinY,
                cursorMoved >= Self.windowMoveCursorMin,
-               multiTravel < Self.windowMoveMaxSurface
+               multiTravel < Self.windowMoveMaxSurface,
+               (
+                (multiCount == 2 && slotOn(GestureSlots.ID.mm2fTopEdgeMove, full))
+                    || (multiCount == 3 && slotOn(GestureSlots.ID.mm3fTopEdgeResize, full))
+               )
             {
-                Log.info(.tap, "→ multi lift after top-edge move attempt (no click)")
+                Log.info(.tap, "→ multi lift after top-edge move/resize attempt (no click)")
                 return
             }
             finishMulti(
                 cfg: cfg,
+                full: full,
                 thr: thr,
                 duration: duration,
                 multiCount: multiCount,
@@ -990,7 +910,7 @@ final class MagicMouseTapController: @unchecked Sendable {
 
         // Horizontal page swipe that never crossed mid-gesture threshold still counts on lift.
         // Page swipes are allowed during scroll lock (they're intentional navigation).
-        if cfg.oneFingerSwipePages,
+        if (slotOn(GestureSlots.ID.mm1fSwipeLeft, full) || slotOn(GestureSlots.ID.mm1fSwipeRight, full)),
            abs(dx) >= thr.pageSwipeMin,
            abs(dx) > abs(dy) * 1.05
         {
@@ -1005,7 +925,7 @@ final class MagicMouseTapController: @unchecked Sendable {
             // Residuals come in chains (log: rejected residual → second residual clicks
             // right after lock expiry) — extend the lock so the chain stays suppressed.
             lock.lock()
-            armNoTapUnlocked(for: Self.residualRepositionLock, reason: "residual-reposition")
+            armNoTapUnlocked(for: ScrollLock.residual, reason: "residual-reposition")
             lock.unlock()
             Log.info(
                 .tap,
@@ -1016,13 +936,26 @@ final class MagicMouseTapController: @unchecked Sendable {
         }
 
         // Physical click already fired via HID — do not synthesize a second click (double-click bug).
-        if physicalOwns {
+        // Gaming mode: physical right-hold + left tap still left-clicks (FPS look + fire).
+        let gamingLeft = MMGeometry.gamingLeftTap(
+            gamingMode: cfg.gamingMode,
+            rightHeld: rightHeld,
+            zone: MMGeometry.tapZone(
+                x: startX,
+                split: Float(cfg.leftRightSplit),
+                deadZone: Float(cfg.deadZone)
+            )
+        )
+        if physicalOwns, !gamingLeft {
             Log.info(
                 .tap,
                 "→ reject physical click owns contact " +
                 "dur=\(String(format: "%.3f", duration))"
             )
             return
+        }
+        if gamingLeft {
+            Log.info(.tap, "→ gaming mode: left tap while right held")
         }
 
         // Classify at lift. Stationary finger = tap; vertical slide = scroll.
@@ -1051,23 +984,27 @@ final class MagicMouseTapController: @unchecked Sendable {
             return
         }
 
-        let split = Float(cfg.leftRightSplit)
-        let dead = Float(cfg.deadZone)
-        let rightMin = split + dead / 2
-
-        if startX >= rightMin, cfg.rightTap {
-            emitClick(.right, cfg: cfg, cursor: cursor)
-        } else if cfg.leftTap {
-            lock.lock()
-            lastLeftTapTime = Date()
-            lock.unlock()
-            emitClick(.left, cfg: cfg, cursor: cursor)
+        switch MMGeometry.tapZone(x: startX, split: Float(cfg.leftRightSplit), deadZone: Float(cfg.deadZone)) {
+        case .right:
+            if slotOn(GestureSlots.ID.mmRight, full) {
+                emitClick(.right, cfg: cfg, cursor: cursor)
+            }
+        case .left:
+            if slotOn(GestureSlots.ID.mmLeft, full) {
+                lock.lock()
+                lastLeftTapTime = Date()
+                lock.unlock()
+                emitClick(.left, cfg: cfg, cursor: cursor)
+            }
+        case .dead:
+            Log.info(.tap, "→ reject dead zone x=\(String(format: "%.3f", startX))")
         }
     }
 
     private func finishMulti(
         cfg: MagicMouseTapConfig,
-        thr: Thresholds,
+        full: SanneConfig,
+        thr: MMThresholds,
         duration: TimeInterval,
         multiCount: Int,
         swipeFingers: Int,
@@ -1089,10 +1026,10 @@ final class MagicMouseTapController: @unchecked Sendable {
             // Armed in the `isTwo` path below.
             cancelPendingTwoFingerMiddle()
             lastTwoFingerTapTime = nil
-            let axis = Self.swipeAxis(dx: dx, dy: dy)
+            let axis = MMGeometry.swipeAxis(dx: dx, dy: dy)
             // Frozen count, not the running max: a finger grazing the shell mid-swipe must not
             // promote a 2-finger swipe into the 3-finger slots.
-            if let slotId = Self.swipeSlot(fingers: swipeFingers, axis: axis, cfg: cfg) {
+            if let slotId = swipeSlot(fingers: swipeFingers, axis: axis, full: full) {
                 Log.info(
                     .tap,
                     "→ \(swipeFingers)F SWIPE \(axis.rawValue.uppercased()) slot=\(slotId) " +
@@ -1121,7 +1058,7 @@ final class MagicMouseTapController: @unchecked Sendable {
         let isTwo = multiCount == 2
         let isThreePlus = multiCount >= 3
 
-        if isThreePlus, cfg.middleThreeFinger {
+        if isThreePlus, slotOn(GestureSlots.ID.mmMiddle3, full) {
             cancelPendingTwoFingerMiddle()
             Log.info(.tap, "→ MIDDLE (3-finger)")
             emit(.recognized(slotId: GestureSlots.ID.mmMiddle3, clickCount: 1))
@@ -1130,7 +1067,7 @@ final class MagicMouseTapController: @unchecked Sendable {
 
         if isTwo {
             // Second 2F tap within window → Mission Control (cancel delayed middle).
-            if cfg.twoFingerDoubleTapMissionControl,
+            if slotOn(GestureSlots.ID.mm2fDoubleMC, full),
                let last = lastTwoFingerTapTime,
                Date().timeIntervalSince(last) < Self.twoFingerDoubleWindow
             {
@@ -1141,7 +1078,7 @@ final class MagicMouseTapController: @unchecked Sendable {
                 return
             }
 
-            if cfg.twoFingerDoubleTapMissionControl, cfg.middleTwoFinger {
+            if slotOn(GestureSlots.ID.mm2fDoubleMC, full), slotOn(GestureSlots.ID.mmMiddle2, full) {
                 // Delay middle so a quick double-tap can become Mission Control instead.
                 lastTwoFingerTapTime = Date()
                 cancelPendingTwoFingerMiddle()
@@ -1163,61 +1100,46 @@ final class MagicMouseTapController: @unchecked Sendable {
                 return
             }
 
-            if cfg.middleTwoFinger {
+            if slotOn(GestureSlots.ID.mmMiddle2, full) {
                 Log.info(.tap, "→ MIDDLE (2-finger)")
                 emit(.recognized(slotId: GestureSlots.ID.mmMiddle2, clickCount: 1))
                 return
             }
 
-            if cfg.twoFingerDoubleTapMissionControl {
+            if slotOn(GestureSlots.ID.mm2fDoubleMC, full) {
                 lastTwoFingerTapTime = Date()
                 Log.debug(.tap, "2F tap armed for Mission Control double")
             }
         }
     }
 
-    /// Dominant axis of a multi-finger swipe. Ties go vertical, matching the original
-    /// `ady >= adx` test.
-    private enum SwipeAxis: String {
-        case up, down, left, right
-    }
-
-    /// Norm Y increases toward the top of the mouse, so `dy > 0` is an upward swipe.
-    private static func swipeAxis(dx: Float, dy: Float) -> SwipeAxis {
-        if abs(dy) >= abs(dx) {
-            return dy > 0 ? .up : .down
-        }
-        return dx < 0 ? .left : .right
-    }
-
     /// Slot for a committed multi-finger swipe, or nil when the owning toggle is off.
     ///
     /// 3+ contacts pick the 3-finger family: the spare fingers rest on the shell, so a
     /// deliberate 3-finger swipe often reports 4 contacts.
-    private static func swipeSlot(
+    private func swipeSlot(
         fingers: Int,
-        axis: SwipeAxis,
-        cfg: MagicMouseTapConfig
+        axis: MMSwipeAxis,
+        full: SanneConfig
     ) -> String? {
         if fingers >= 3 {
-            guard cfg.threeFingerSwipes else { return nil }
+            let id: String
             switch axis {
-            case .up: return GestureSlots.ID.mm3fSwipeUp
-            case .down: return GestureSlots.ID.mm3fSwipeDown
-            case .left: return GestureSlots.ID.mm3fSwipeLeft
-            case .right: return GestureSlots.ID.mm3fSwipeRight
+            case .up: id = GestureSlots.ID.mm3fSwipeUp
+            case .down: id = GestureSlots.ID.mm3fSwipeDown
+            case .left: id = GestureSlots.ID.mm3fSwipeLeft
+            case .right: id = GestureSlots.ID.mm3fSwipeRight
             }
+            return slotOn(id, full) ? id : nil
         }
+        let id: String
         switch axis {
-        case .up:
-            return cfg.twoFingerSwipeUpMissionControl ? GestureSlots.ID.mm2fSwipeUp : nil
-        case .down:
-            return cfg.twoFingerSwipeDownAppExpose ? GestureSlots.ID.mm2fSwipeDown : nil
-        case .left:
-            return cfg.twoFingerSwipeSpaces ? GestureSlots.ID.mm2fSwipeLeft : nil
-        case .right:
-            return cfg.twoFingerSwipeSpaces ? GestureSlots.ID.mm2fSwipeRight : nil
+        case .up: id = GestureSlots.ID.mm2fSwipeUp
+        case .down: id = GestureSlots.ID.mm2fSwipeDown
+        case .left: id = GestureSlots.ID.mm2fSwipeLeft
+        case .right: id = GestureSlots.ID.mm2fSwipeRight
         }
+        return slotOn(id, full) ? id : nil
     }
 
     private func cancelPendingTwoFingerMiddle() {
@@ -1285,6 +1207,7 @@ final class MagicMouseTapController: @unchecked Sendable {
         multiSwipeFingers = 0
         dragPhase = .none
         windowMovePhase = .none
+        windowMoveKind = .move
         touchStartX = 0
         touchStartY = 0
         touchStartTime = nil
@@ -1299,8 +1222,6 @@ final class MagicMouseTapController: @unchecked Sendable {
         multiStartY = 0
         multiStartCentroid = .zero
         multiLastCentroid = .zero
-        // physicalClickDuringContact / lastPhysicalClickTime are managed by finishTap /
-        // notePhysicalMouseDown / touch-begin so a late physical press still suppresses.
         if clearSuppress {
             suppressUntilLift = false
         }

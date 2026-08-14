@@ -38,6 +38,8 @@ enum ClickButton: CustomStringConvertible {
 }
 
 enum ClickEmitter {
+    private static let queue = DispatchQueue(label: "app.sanne.click", qos: .userInteractive)
+
     /// `clickCount` is the macOS multi-click index (1 = single, 2 = double, 3 = triple).
     /// Finder/text selection only treat successive events as multi-click when this is set correctly.
     static func click(_ button: ClickButton, at point: CGPoint? = nil, clickCount: Int = 1) {
@@ -59,10 +61,12 @@ enum ClickEmitter {
 
         configure(down, button: button, clickState: count)
         configure(up, button: button, clickState: count)
-        down.post(tap: .cghidEventTap)
-        usleep(12_000)
-        up.post(tap: .cghidEventTap)
-        Log.info(.click, "posted \(button)×\(count) down+up via cghidEventTap")
+        queue.async {
+            down.post(tap: .cghidEventTap)
+            usleep(12_000)
+            up.post(tap: .cghidEventTap)
+            Log.info(.click, "posted \(button)×\(count) down+up via cghidEventTap")
+        }
     }
 
     static func mouseDown(_ button: ClickButton, at point: CGPoint? = nil) {
@@ -145,10 +149,12 @@ enum ClickEmitter {
         up.setIntegerValueField(.mouseEventButtonNumber, value: buttonNumber)
         down.setIntegerValueField(.mouseEventClickState, value: 1)
         up.setIntegerValueField(.mouseEventClickState, value: 1)
-        down.post(tap: .cghidEventTap)
-        usleep(12_000)
-        up.post(tap: .cghidEventTap)
-        Log.info(.click, "posted mouse button \(buttonNumber) (\(back ? "back" : "forward"))")
+        queue.async {
+            down.post(tap: .cghidEventTap)
+            usleep(12_000)
+            up.post(tap: .cghidEventTap)
+            Log.info(.click, "posted mouse button \(buttonNumber) (\(back ? "back" : "forward"))")
+        }
     }
 
     private static func currentMouseLocation() -> CGPoint {

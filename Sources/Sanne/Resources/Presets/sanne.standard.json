@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "presetId": "sanne.standard",
   "paused": false,
   "magicMouseTaps": {
@@ -55,6 +55,9 @@
     "sensitivity": 0
   },
   "customActions": [],
+  "appGestureOverrides": {},
+  "hud": { "enabled": true },
+  "experimental": { "windowToSpace": false },
   "window": {
     "gap": 0,
     "showPreview": true,

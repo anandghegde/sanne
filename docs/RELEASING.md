@@ -120,23 +120,14 @@ gh release create "$TAG" \
 
 If `docs/releases/${VERSION}.md` does not exist yet, copy the matching section from [CHANGELOG.md](../CHANGELOG.md) into a new file under `docs/releases/`.
 
-### 4. Homebrew (later)
+### 4. Homebrew
 
-Once a public notarized DMG URL exists:
+Cask sketch lives at [docs/homebrew/sanne.rb](./homebrew/sanne.rb). Publish to `homebrew-cask` once a public notarized DMG URL exists:
 
-```ruby
-# Formula sketch — publish when ready
-cask "sanne" do
-  version "0.1.0"
-  sha256 "…" # from .sha256 file
-
-  url "https://github.com/sanne-app/sanne/releases/download/v#{version}/Sanne-#{version}.dmg"
-  name "Sanne"
-  desc "Gestures for Magic Mouse and trackpad"
-  homepage "https://github.com/sanne-app/sanne"
-
-  app "Sanne.app"
-end
+```bash
+# Fill sha256 from dist/Sanne-<ver>.dmg.sha256, then:
+brew tap homebrew/cask
+# or submit a PR to Homebrew/homebrew-cask with that file
 ```
 
 ## Release checklist

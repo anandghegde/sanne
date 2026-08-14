@@ -1,38 +1,65 @@
 import AppKit
 import ApplicationServices
+import Combine
 import SwiftUI
 
 @MainActor
-final class MenuBarController: NSObject {
+final class MenuBarController: NSObject, NSMenuDelegate, NSWindowDelegate {
     private var statusItem: NSStatusItem?
     private var prefsWindow: NSWindow?
     private var onboardingWindow: NSWindow?
     private var cheatSheetWindow: NSWindow?
     private var tutorialWindow: NSWindow?
+    private var cancellables = Set<AnyCancellable>()
 
     func install() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        if let button = item.button {
-            button.image = NSImage(
-                systemSymbolName: "hand.draw",
-                accessibilityDescription: "Sanne"
-            )
-            button.image?.isTemplate = true
-        }
-        item.menu = buildMenu()
-        statusItem = item
-        refreshMenu()
-    }
-
-    func refreshMenu() {
-        statusItem?.menu = buildMenu()
-        let paused = AppController.shared.isPaused
-        statusItem?.button?.appearsDisabled = paused
-    }
-
-    private func buildMenu() -> NSMenu {
         let menu = NSMenu()
+        menu.delegate = self
+        item.menu = menu
+        statusItem = item
+        refreshIcon()
+        observeState()
+    }
+
+    /// Rebuilds the icon only. Menu items are rebuilt in `menuNeedsUpdate` so an
+    /// open menu is never replaced out from under the user.
+    func refreshIcon() {
+        guard let button = statusItem?.button else { return }
         let app = AppController.shared
+        button.image = statusImage(trusted: app.accessibilityTrusted, paused: app.isPaused)
+        button.appearsDisabled = app.isPaused && app.accessibilityTrusted
+    }
+
+    /// Kept for call sites that used to rebuild the whole menu. Icon only — items
+    /// refresh when the menu opens.
+    func refreshMenu() {
+        refreshIcon()
+    }
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        menu.removeAllItems()
+        populate(menu, showDebug: NSEvent.modifierFlags.contains(.option))
+    }
+
+    private func observeState() {
+        let schedule = { [weak self] in
+            DispatchQueue.main.async { self?.refreshIcon() }
+        }
+        AppController.shared.objectWillChange
+            .sink { _ in schedule() }
+            .store(in: &cancellables)
+        ConfigStore.shared.objectWillChange
+            .sink { _ in schedule() }
+            .store(in: &cancellables)
+        NotificationCenter.default.publisher(for: .sanneConfigDidChange)
+            .sink { _ in schedule() }
+            .store(in: &cancellables)
+    }
+
+    private func populate(_ menu: NSMenu, showDebug: Bool) {
+        let app = AppController.shared
+        let cfg = ConfigStore.shared.config
 
         let status = NSMenuItem(
             title: statusTitle(app),
@@ -43,11 +70,22 @@ final class MenuBarController: NSObject {
         menu.addItem(status)
 
         if !app.conflicts.isEmpty {
-            menu.addItem(NSMenuItem(
-                title: "⚠ Conflict: \(app.conflicts.joined(separator: ", "))",
+            let conflict = NSMenuItem(
+                title: "Also running: \(app.conflicts.joined(separator: ", "))",
                 action: nil,
                 keyEquivalent: ""
-            ))
+            )
+            conflict.isEnabled = false
+            menu.addItem(conflict)
+            if !app.isPaused {
+                let pauseConflict = NSMenuItem(
+                    title: "Pause Sanne",
+                    action: #selector(togglePause),
+                    keyEquivalent: ""
+                )
+                pauseConflict.target = self
+                menu.addItem(pauseConflict)
+            }
         }
 
         menu.addItem(.separator())
@@ -69,6 +107,28 @@ final class MenuBarController: NSObject {
         prefs.target = self
         menu.addItem(prefs)
 
+        menu.addItem(.separator())
+
+        let mm = NSMenuItem(
+            title: "Magic Mouse Taps",
+            action: #selector(toggleMagicMouse),
+            keyEquivalent: ""
+        )
+        mm.target = self
+        mm.state = cfg.magicMouseTaps.enabled ? .on : .off
+        menu.addItem(mm)
+
+        let titlebar = NSMenuItem(
+            title: "Titlebar Window Gestures",
+            action: #selector(toggleTitlebar),
+            keyEquivalent: ""
+        )
+        titlebar.target = self
+        titlebar.state = cfg.titlebarGestures.enabled ? .on : .off
+        menu.addItem(titlebar)
+
+        menu.addItem(.separator())
+
         let cheat = NSMenuItem(
             title: "Gesture Cheat Sheet…",
             action: #selector(openCheatSheet),
@@ -86,9 +146,8 @@ final class MenuBarController: NSObject {
         tutorial.target = self
         menu.addItem(tutorial)
 
-        menu.addItem(.separator())
-
         if !app.accessibilityTrusted {
+            menu.addItem(.separator())
             let ax = NSMenuItem(
                 title: "Grant Accessibility…",
                 action: #selector(grantAccess),
@@ -98,28 +157,40 @@ final class MenuBarController: NSObject {
             menu.addItem(ax)
         }
 
-        let debugMenu = NSMenu(title: "Debug")
-        debugMenu.addItem(item("Debug Log…", #selector(openSettings), key: "d", mods: [.command, .option]))
-        debugMenu.addItem(item("Reveal Log File", #selector(revealLog)))
-        debugMenu.addItem(.separator())
-        debugMenu.addItem(item("Log Zone Under Cursor", #selector(logZoneUnderCursor)))
-        debugMenu.addItem(item("Log Multitouch Stats", #selector(logMultitouchStats)))
-        debugMenu.addItem(.separator())
-        // AX path tests without needing a trackpad gesture (isolates snap vs recognition).
-        debugMenu.addItem(item("Test Snap: Left Half", #selector(testSnapLeft)))
-        debugMenu.addItem(item("Test Snap: Right Half", #selector(testSnapRight)))
-        debugMenu.addItem(item("Test Snap: Left Third", #selector(testSnapLeftThird)))
-        debugMenu.addItem(item("Test Snap: Maximize", #selector(testSnapMaximize)))
-        debugMenu.addItem(item("Test Snap: Restore (same layout twice)", #selector(testSnapRestore)))
-        debugMenu.addItem(item("Test: Move focused → display right", #selector(testMoveDisplayRight)))
-        debugMenu.addItem(.separator())
-        debugMenu.addItem(item("Test Dock: Activate under cursor", #selector(testDockActivate)))
-        debugMenu.addItem(item("Test Dock: Hide under cursor", #selector(testDockHide)))
-        debugMenu.addItem(item("Test Menubar: Next window", #selector(testMenubarNext)))
-        debugMenu.addItem(item("Test Menubar: Hide others", #selector(testMenubarHideOthers)))
-        let debugRoot = NSMenuItem(title: "Debug", action: nil, keyEquivalent: "")
-        debugRoot.submenu = debugMenu
-        menu.addItem(debugRoot)
+        if showDebug {
+            menu.addItem(.separator())
+            let debugMenu = NSMenu(title: "Debug")
+            debugMenu.addItem(item("Debug Log…", #selector(openDebugLog), key: "d", mods: [.command, .option]))
+            debugMenu.addItem(item("Reveal Log File", #selector(revealLog)))
+            debugMenu.addItem(.separator())
+            debugMenu.addItem(item("Log Zone Under Cursor", #selector(logZoneUnderCursor)))
+            debugMenu.addItem(item("Log Multitouch Stats", #selector(logMultitouchStats)))
+            debugMenu.addItem(.separator())
+            debugMenu.addItem(item("Test Snap: Left Half", #selector(testSnapLeft)))
+            debugMenu.addItem(item("Test Snap: Right Half", #selector(testSnapRight)))
+            debugMenu.addItem(item("Test Snap: Left Third", #selector(testSnapLeftThird)))
+            debugMenu.addItem(item("Test Snap: Maximize", #selector(testSnapMaximize)))
+            debugMenu.addItem(item("Test Snap: Restore (same layout twice)", #selector(testSnapRestore)))
+            debugMenu.addItem(item("Test: Move focused → display right", #selector(testMoveDisplayRight)))
+            debugMenu.addItem(.separator())
+            debugMenu.addItem(item("Test Dock: Activate under cursor", #selector(testDockActivate)))
+            debugMenu.addItem(item("Test Dock: Hide under cursor", #selector(testDockHide)))
+            debugMenu.addItem(item("Test Menubar: Next window", #selector(testMenubarNext)))
+            debugMenu.addItem(item("Test Menubar: Hide others", #selector(testMenubarHideOthers)))
+            let debugRoot = NSMenuItem(title: "Debug", action: nil, keyEquivalent: "")
+            debugRoot.submenu = debugMenu
+            menu.addItem(debugRoot)
+        }
+
+        menu.addItem(.separator())
+
+        let updates = NSMenuItem(
+            title: "Check for Updates…",
+            action: #selector(checkForUpdates),
+            keyEquivalent: ""
+        )
+        updates.target = self
+        menu.addItem(updates)
 
         let about = NSMenuItem(title: "About Sanne", action: #selector(showAbout), keyEquivalent: "")
         about.target = self
@@ -130,8 +201,39 @@ final class MenuBarController: NSObject {
         let quit = NSMenuItem(title: "Quit Sanne", action: #selector(quit), keyEquivalent: "q")
         quit.target = self
         menu.addItem(quit)
+    }
 
-        return menu
+    private func statusImage(trusted: Bool, paused: Bool) -> NSImage {
+        let config = NSImage.SymbolConfiguration(pointSize: 16, weight: .medium)
+        let base = NSImage(systemSymbolName: "hand.draw", accessibilityDescription: "Sanne")?
+            .withSymbolConfiguration(config)
+            ?? NSImage(systemSymbolName: "hand.draw", accessibilityDescription: "Sanne")
+            ?? NSImage()
+        if trusted {
+            base.isTemplate = true
+            return base
+        }
+        return badgedStatusImage(base: base, paused: paused)
+    }
+
+    /// Template hand with a warning-triangle badge. Shape-only so it is not color-only.
+    private func badgedStatusImage(base: NSImage, paused: Bool) -> NSImage {
+        let size = NSSize(width: 18, height: 18)
+        let image = NSImage(size: size, flipped: false) { rect in
+            let handRect = NSRect(x: 0, y: 2, width: 15, height: 15)
+            base.draw(in: handRect, from: .zero, operation: .sourceOver, fraction: paused ? 0.55 : 1)
+            if let badge = NSImage(
+                systemSymbolName: "exclamationmark.triangle.fill",
+                accessibilityDescription: "Needs Accessibility"
+            ) {
+                let badgeRect = NSRect(x: 8, y: 0, width: 10, height: 10)
+                badge.draw(in: badgeRect, from: .zero, operation: .sourceOver, fraction: 1)
+            }
+            return true
+        }
+        image.isTemplate = true
+        image.accessibilityDescription = "Sanne — needs Accessibility"
+        return image
     }
 
     private func item(
@@ -147,23 +249,37 @@ final class MenuBarController: NSObject {
     }
 
     private func statusTitle(_ app: AppController) -> String {
-        if !app.accessibilityTrusted { return "Sanne — needs Accessibility" }
-        if app.isPaused { return "Sanne — paused" }
+        if ConfigStore.shared.safeMode { return "Safe mode" }
+        if !app.accessibilityTrusted { return "Needs Accessibility" }
+        if app.isPaused { return "Paused" }
         if app.isEffectivelyPaused {
             let name = NSWorkspace.shared.frontmostApplication?.localizedName ?? "app"
-            return "Sanne — off for \(name)"
+            return "Off in \(name)"
         }
-        if app.multitouchError != nil { return "Sanne — multitouch error" }
-        if app.multitouchRunning { return "Sanne — running" }
-        return "Sanne"
+        return "Running"
     }
 
     @objc private func togglePause() {
         AppController.shared.togglePaused()
-        refreshMenu()
+        refreshIcon()
+    }
+
+    @objc private func toggleMagicMouse() {
+        ConfigStore.shared.update { $0.magicMouseTaps.enabled.toggle() }
+        refreshIcon()
+    }
+
+    @objc private func toggleTitlebar() {
+        ConfigStore.shared.update { $0.titlebarGestures.enabled.toggle() }
+        refreshIcon()
     }
 
     @objc private func openSettings() {
+        showPreferences()
+    }
+
+    @objc private func openDebugLog() {
+        PreferencesRoute.request(PreferencesRoute.debug)
         showPreferences()
     }
 
@@ -297,19 +413,55 @@ final class MenuBarController: NSObject {
     }
 
     @objc private func showAbout() {
+        PreferencesRoute.request(PreferencesRoute.about)
+        showPreferences()
+    }
+
+    @objc private func checkForUpdates() {
+        let current = AppVersion.marketing
+        Task { [weak self] in
+            var request = URLRequest(url: UpdateChecker.latestReleaseURL)
+            request.setValue("Sanne/\(current)", forHTTPHeaderField: "User-Agent")
+            request.timeoutInterval = 10
+            let outcome: UpdateChecker.Outcome
+            do {
+                let (data, response) = try await URLSession.shared.data(for: request)
+                if let http = response as? HTTPURLResponse, http.statusCode == 404 {
+                    outcome = .failed("No GitHub Release yet.")
+                } else if let release = UpdateChecker.parseLatest(from: data) {
+                    outcome = UpdateChecker.evaluate(latest: release, current: current)
+                } else {
+                    outcome = .failed("Couldn't read the latest release.")
+                }
+            } catch {
+                outcome = .failed("Couldn't check for updates.")
+            }
+            self?.presentUpdate(outcome, current: current)
+        }
+    }
+
+    private func presentUpdate(_ outcome: UpdateChecker.Outcome, current: String) {
         let alert = NSAlert()
-        alert.messageText = "Sanne"
-        alert.informativeText = """
-        Free & open source gestures for Magic Mouse and trackpad.
-
-        Version \(AppVersion.display)
-
-        Log: \(LogRing.shared.logFilePath)
-        Binary: \(Permissions.processPath)
-        Stats: \(TouchDeviceManager.shared.stats)
-        """
-        alert.alertStyle = .informational
-        alert.runModal()
+        switch outcome {
+        case .upToDate:
+            alert.messageText = "Sanne is up to date"
+            alert.informativeText = "You’re on \(current)."
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+        case .available(let release):
+            alert.messageText = "Update available"
+            alert.informativeText = "\(UpdateChecker.stripV(release.tag)) is on GitHub. You’re on \(current)."
+            alert.addButton(withTitle: "Open Release")
+            alert.addButton(withTitle: "Later")
+            if alert.runModal() == .alertFirstButtonReturn {
+                NSWorkspace.shared.open(release.htmlURL)
+            }
+        case .failed(let reason):
+            alert.messageText = "Couldn’t check for updates"
+            alert.informativeText = reason
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+        }
     }
 
     @objc private func quit() {
@@ -327,13 +479,14 @@ final class MenuBarController: NSObject {
             // make the hosting view taller than the window and clip the page title.
             hosting.sizingOptions = []
             let window = NSWindow(contentViewController: hosting)
-            window.title = "Sanne"
+            window.title = "Sanne Settings"
             window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
             window.titlebarAppearsTransparent = false
             window.setContentSize(NSSize(width: 820, height: 560))
             window.minSize = NSSize(width: 720, height: 480)
             window.center()
             window.isReleasedWhenClosed = false
+            window.delegate = self
             prefsWindow = window
         }
         NSApp.setActivationPolicy(.regular)
@@ -360,6 +513,7 @@ final class MenuBarController: NSObject {
             window.setContentSize(NSSize(width: 520, height: 520))
             window.center()
             window.isReleasedWhenClosed = false
+            window.delegate = self
             onboardingWindow = window
         }
         NSApp.setActivationPolicy(.regular)
@@ -382,6 +536,7 @@ final class MenuBarController: NSObject {
             window.minSize = NSSize(width: 520, height: 400)
             window.center()
             window.isReleasedWhenClosed = false
+            window.delegate = self
             cheatSheetWindow = window
         }
         NSApp.setActivationPolicy(.regular)
@@ -404,9 +559,10 @@ final class MenuBarController: NSObject {
             let window = NSWindow(contentViewController: hosting)
             window.title = "Sanne Tutorial"
             window.styleMask = [.titled, .closable]
-            window.setContentSize(NSSize(width: 540, height: 400))
+            window.setContentSize(NSSize(width: 540, height: 440))
             window.center()
             window.isReleasedWhenClosed = false
+            window.delegate = self
             tutorialWindow = window
         } else {
             // Rebuild content so steps reset each open.
@@ -429,6 +585,12 @@ final class MenuBarController: NSObject {
     func hideTutorial() {
         tutorialWindow?.orderOut(nil)
         restoreAccessoryIfIdle()
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        DispatchQueue.main.async { [weak self] in
+            self?.restoreAccessoryIfIdle()
+        }
     }
 
     private func restoreAccessoryIfIdle() {

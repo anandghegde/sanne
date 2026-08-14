@@ -36,15 +36,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ) { [weak self] _ in
             Task { @MainActor in self?.menuBar.showCheatSheet() }
         }
-
-        // Keep menu bar icon state in sync
-        Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                self?.menuBar.refreshMenu()
-                if !AppController.shared.showOnboarding {
-                    self?.menuBar.hideOnboarding()
-                }
-            }
+        NotificationCenter.default.addObserver(
+            forName: .sanneShowPreferences,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.menuBar.showPreferences() }
         }
     }
 

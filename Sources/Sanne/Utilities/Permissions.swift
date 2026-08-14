@@ -1,5 +1,6 @@
 import ApplicationServices
 import AppKit
+import CoreGraphics
 
 enum Permissions {
     static var isAccessibilityTrusted: Bool {
@@ -23,5 +24,17 @@ enum Permissions {
 
     static var processPath: String {
         CommandLine.arguments.first ?? Bundle.main.bundlePath
+    }
+
+    /// Progressive Input Monitoring for the keyboard event tap. No-op when already trusted.
+    @discardableResult
+    static func requestInputMonitoring() -> Bool {
+        if CGPreflightListenEventAccess() { return true }
+        return CGRequestListenEventAccess()
+    }
+
+    static func openInputMonitoringSettings() {
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent") else { return }
+        NSWorkspace.shared.open(url)
     }
 }

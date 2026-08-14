@@ -9,8 +9,8 @@ Native macOS gestures for Magic Mouse and trackpad — opinionated defaults, ful
 ## Features (MVP)
 
 - **Magic Mouse taps** — left / right / middle, double/triple multi-click, tap-drag; 2-finger Mission Control / App Exposé; top-edge 2F drag to move windows; 3-finger swipes L/R/U/D (off by default)
-- **Titlebar gestures** — halves, long-swipe thirds, quarters; maximize / minimize; pinch close / fullscreen; 3-finger → adjacent display
-- **Keyboard snap** — ⌃⌥ + arrows (cycle thirds); ⌃⌥⌘ + arrows move display
+- **Titlebar gestures** — halves, continuous long-swipe thirds, quarters; maximize / minimize; pinch close / fullscreen; 3-finger → adjacent display
+- **Keyboard snap** — ⌃⌥ + arrows (cycle thirds); ↓ restores; ⌃⌥⌘ + arrows move display. Remappable. The chord is consumed so the frontmost app does not also see it
 - **Modifier-drag** — ⌥⌘ + drag move; ⌃⌘ + drag resize (anywhere on window)
 - **Per-app rules** — pause all Sanne, or only Magic Mouse / window gestures / keyboard+drag, while an app is frontmost
 - **Per-app gesture bindings** — the same gesture can run a different action per frontmost app (app binding → your global remap → Sanne Standard), so one swipe does different things in Safari and Xcode
@@ -20,9 +20,13 @@ Native macOS gestures for Magic Mouse and trackpad — opinionated defaults, ful
 - **Live snap preview** + optional haptics
 - **Action name overlay** — a brief HUD names the action a gesture just fired; silent for clicks and drags
 - **Trackpad** — three-finger tap → middle-click; three-finger drag → text select / drag items (Apple/BTT-style); free-space 3- and 4-finger swipes and four-finger tap (off by default); tip-tap — rest one finger, tap beside it (off by default)
-- **Settings** — toggles for every default; reset to Sanne Standard
+- **Settings** — 8 pages (Home, Magic Mouse, Trackpad, Windows, Keyboard, Apps, Presets, Advanced); Simple lists day-one gestures, power one click away; search finds toggles and slots
+- **Presets** — Sanne Standard or Minimal (taps + halves only)
 - **Gesture remap** — on each device/zone page (Magic Mouse, Trackpad, Windows, Dock, Menubar), or All bindings: reassign any Standard gesture to catalog actions, a recorded keystroke, opening an app, or your own shell command / AppleScript / Shortcut
-- **Menu bar app** — pause/resume, Accessibility onboarding, conflict warning
+- **Menu bar app** — pause/resume, Magic Mouse / titlebar toggles, Accessibility badge, first-run welcome + tutorial, Check for Updates
+- **Magic Mouse 3-finger top-edge resize** and **gaming mode** (physical right-hold + left tap, off by default)
+- **Safe mode** — hold Option at launch to load Sanne Standard without writing your config
+- **Window-to-Space** — experimental, off by default; HUD on failure
 
 ### Why some gestures ship off
 
@@ -56,7 +60,7 @@ Or for quick iteration:
 
 ```bash
 swift build
-swift test    # 35 pure-logic tests (SanneKit)
+swift test    # pure-logic tests (SanneKit)
 swift run
 ```
 
@@ -75,6 +79,12 @@ Config is stored at:
 ```text
 ~/Library/Application Support/Sanne/config.json
 ```
+
+## Privacy
+
+Sanne is local-only. Gestures, remaps, scripts, and the debug log stay on this Mac (`~/Library/Application Support/Sanne` and `~/Library/Logs/Sanne`). There is no account, no analytics, and no cloud sync. **Check for Updates…** (Settings → Advanced, off unless you click it) is the only optional network call — it reads the latest GitHub Release. Hold **Option** at launch to load Sanne Standard without touching your config file.
+
+**Safe mode:** hold Option while opening Sanne.app.
 
 ## Project layout
 
@@ -109,6 +119,7 @@ Sources/Sanne/
 | Document | Description |
 |----------|-------------|
 | [PROGRESS.md](./PROGRESS.md) | **Step-by-step plan + progress (start here)** |
+| [IMPROVEMENT_PLAN.md](./IMPROVEMENT_PLAN.md) | UX, feature, and maintainability plan (post-0.2.0) |
 | [CHANGELOG.md](./CHANGELOG.md) | Release history |
 | [docs/RELEASING.md](./docs/RELEASING.md) | DMG, notarize, GitHub Release checklist |
 | [PRD.md](./PRD.md) | Product requirements |

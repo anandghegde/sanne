@@ -21,29 +21,40 @@ struct GestureEditorView<Header: View>: View {
     /// When set, only this group's slots appear; group filter chips and section headers are hidden
     /// (the parent page already names the device/zone).
     var fixedGroup: GestureSlots.Group? = nil
+    /// Extra groups stacked after `fixedGroup` on the same page (Windows + Dock + Menubar).
+    var extraGroups: [GestureSlots.Group] = []
 
     /// Sticky title above search on a device/zone page. The Form below starts at the settings.
     var pageTitle: String? = nil
     var pageSubtitle: String? = nil
+    /// Dim the slot list when the matching device is unplugged.
+    var dimSlots: Bool = false
 
     private let header: Header
 
     @State private var query = ""
     @State private var groupFilter: GestureSlots.Group?
     @State private var showModifiedOnly = false
+    @State private var showAllGestures = false
     @State private var pickingSlotId: String?
+    @State private var popoverSlotId: String?
+    @State private var highlightedSlotId: String?
 
     init(
         scope: GestureBindingScope = .global,
         fixedGroup: GestureSlots.Group? = nil,
+        extraGroups: [GestureSlots.Group] = [],
         pageTitle: String? = nil,
         pageSubtitle: String? = nil,
+        dimSlots: Bool = false,
         @ViewBuilder header: () -> Header
     ) {
         self.scope = scope
         self.fixedGroup = fixedGroup
+        self.extraGroups = extraGroups
         self.pageTitle = pageTitle
         self.pageSubtitle = pageSubtitle
+        self.dimSlots = dimSlots
         self.header = header()
     }
 
@@ -82,31 +93,41 @@ struct GestureEditorView<Header: View>: View {
         if fixedGroup != nil {
             // List, not Form: grouped Form reports its full content height and the
             // window clips the page title. List takes the remaining pane and scrolls.
-            List {
-                header
-                slotRows
+            ScrollViewReader { proxy in
+                List {
+                    header
+                    slotRows
+                }
+                .listStyle(.inset)
+                .frame(minHeight: 0)
+                .onReceive(NotificationCenter.default.publisher(for: GestureActivity.highlightSlot)) { note in
+                    revealAndHighlight(note.userInfo?["slotId"] as? String, proxy: proxy)
+                }
             }
-            .listStyle(.inset)
-            .frame(minHeight: 0)
         } else if filteredSlots.isEmpty {
             emptyState
         } else {
-            List {
-                ForEach(grouped, id: \.0) { group, slots in
-                    Section {
-                        ForEach(slots) { slot in
-                            row(slot)
+            ScrollViewReader { proxy in
+                List {
+                    ForEach(grouped, id: \.0) { group, slots in
+                        Section {
+                            ForEach(slots) { slot in
+                                row(slot)
+                            }
+                        } header: {
+                            Label(group.rawValue, systemImage: GestureGlyph.systemImage(forGroup: group))
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                                .textCase(nil)
                         }
-                    } header: {
-                        Label(group.rawValue, systemImage: GestureGlyph.systemImage(forGroup: group))
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                            .textCase(nil)
                     }
                 }
+                .listStyle(.inset)
+                .frame(minHeight: 0)
+                .onReceive(NotificationCenter.default.publisher(for: GestureActivity.highlightSlot)) { note in
+                    revealAndHighlight(note.userInfo?["slotId"] as? String, proxy: proxy)
+                }
             }
-            .listStyle(.inset)
-            .frame(minHeight: 0)
         }
     }
 
@@ -118,6 +139,17 @@ struct GestureEditorView<Header: View>: View {
                     .frame(maxWidth: .infinity, minHeight: 160)
                     .listRowBackground(Color.clear)
             }
+        } else if displayedGroups.count > 1 {
+            ForEach(displayedGroups, id: \.self) { group in
+                let slots = filteredSlots.filter { $0.group == group }
+                if !slots.isEmpty {
+                    Section(group.rawValue) {
+                        ForEach(slots) { slot in
+                            row(slot)
+                        }
+                    }
+                }
+            }
         } else {
             Section {
                 ForEach(filteredSlots) { slot in
@@ -125,6 +157,13 @@ struct GestureEditorView<Header: View>: View {
                 }
             }
         }
+    }
+
+    private var displayedGroups: [GestureSlots.Group] {
+        if let fixedGroup {
+            return [fixedGroup] + extraGroups
+        }
+        return []
     }
 
     private var emptyState: some View {
@@ -211,7 +250,26 @@ struct GestureEditorView<Header: View>: View {
                 }
             }
             .padding(.horizontal, 14)
-            .padding(.bottom, 10)
+
+            if fixedGroup != nil, hiddenAdvancedCount > 0 || showAllGestures {
+                Button {
+                    showAllGestures.toggle()
+                } label: {
+                    Label(
+                        showAllGestures
+                            ? "Show fewer gestures"
+                            : "Show all gestures (\(hiddenAdvancedCount))",
+                        systemImage: showAllGestures ? "chevron.up" : "chevron.down"
+                    )
+                    .font(.caption.weight(.medium))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Color.accentColor)
+                .padding(.horizontal, 14)
+                .padding(.top, 2)
+            }
+
+            Color.clear.frame(height: 10)
         }
         .background(Color(nsColor: .windowBackgroundColor).opacity(0.92))
     }
@@ -231,8 +289,14 @@ struct GestureEditorView<Header: View>: View {
             ))
             .labelsHidden()
             .toggleStyle(.checkbox)
+            .accessibilityLabel("Enable \(slot.title)")
 
-            GestureDiagramView(diagram: .from(slotId: slot.id), size: 36, active: enabled)
+            GestureDiagramView(
+                diagram: .from(slotId: slot.id),
+                size: 36,
+                active: enabled,
+                label: slot.title
+            )
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
@@ -269,7 +333,7 @@ struct GestureEditorView<Header: View>: View {
                     .foregroundStyle(.tertiary)
             } else {
                 Button {
-                    pickingSlotId = slot.id
+                    popoverSlotId = slot.id
                 } label: {
                     HStack(spacing: 4) {
                         Text(ActionCatalog.title(for: actionId))
@@ -284,6 +348,22 @@ struct GestureEditorView<Header: View>: View {
                 }
                 .buttonStyle(.plain)
                 .help("Change action")
+                .popover(isPresented: Binding(
+                    get: { popoverSlotId == slot.id },
+                    set: { if !$0 { popoverSlotId = nil } }
+                ), arrowEdge: .bottom) {
+                    ActionQuickMenu(
+                        currentActionId: actionId,
+                        onPick: { id in
+                            setAction(slotId: slot.id, actionId: id)
+                            popoverSlotId = nil
+                        },
+                        onMore: {
+                            popoverSlotId = nil
+                            pickingSlotId = slot.id
+                        }
+                    )
+                }
             }
 
             Button("Reset") {
@@ -295,13 +375,43 @@ struct GestureEditorView<Header: View>: View {
             .opacity(modified ? 1 : 0.35)
         }
         .padding(.vertical, 5)
-        .opacity(enabled ? 1 : 0.5)
+        .opacity((enabled && !dimSlots) ? 1 : 0.5)
         .contentShape(Rectangle())
+        .id(slot.id)
+        .listRowBackground(
+            highlightedSlotId == slot.id
+                ? Color.accentColor.opacity(0.16)
+                : Color.clear
+        )
+    }
+
+    private func revealAndHighlight(_ slotId: String?, proxy: ScrollViewProxy) {
+        guard let slotId, let slot = GestureSlots.slot(id: slotId) else { return }
+        if !displayedGroups.isEmpty, !displayedGroups.contains(slot.group) { return }
+        if slot.visibility == .advanced { showAllGestures = true }
+        query = ""
+        showModifiedOnly = false
+        DispatchQueue.main.async {
+            highlightedSlotId = slotId
+            proxy.scrollTo(slotId, anchor: .center)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) {
+            if highlightedSlotId == slotId { highlightedSlotId = nil }
+        }
+    }
+
+    private var hiddenAdvancedCount: Int {
+        GestureSlots.all.filter { slot in
+            displayedGroups.contains(slot.group) && slot.visibility == .advanced
+        }.count
     }
 
     private var filteredSlots: [GestureSlots.Slot] {
         GestureSlots.all.filter { slot in
-            if let fixedGroup, slot.group != fixedGroup { return false }
+            if !displayedGroups.isEmpty, !displayedGroups.contains(slot.group) { return false }
+            if fixedGroup != nil, !showAllGestures, !showModifiedOnly, slot.visibility != .simple {
+                return false
+            }
             if showModifiedOnly {
                 guard isCustomized(slot.id) else { return false }
             } else if fixedGroup == nil, let groupFilter, slot.group != groupFilter {
@@ -319,8 +429,8 @@ struct GestureEditorView<Header: View>: View {
     /// Modified count for the badge / reset affordance: scoped to `fixedGroup` when embedded.
     private var customizedCountInView: Int {
         let slots: [GestureSlots.Slot]
-        if let fixedGroup {
-            slots = GestureSlots.all.filter { $0.group == fixedGroup }
+        if !displayedGroups.isEmpty {
+            slots = GestureSlots.all.filter { displayedGroups.contains($0.group) }
         } else {
             slots = GestureSlots.all
         }
@@ -329,8 +439,8 @@ struct GestureEditorView<Header: View>: View {
 
     private func resetVisibleOverrides() {
         store.update { cfg in
-            if let fixedGroup {
-                for slot in GestureSlots.all where slot.group == fixedGroup {
+            if !displayedGroups.isEmpty {
+                for slot in GestureSlots.all where displayedGroups.contains(slot.group) {
                     cfg.clearGestureOverride(slotId: slot.id, scope: scope)
                 }
             } else {
@@ -421,7 +531,7 @@ struct GestureEditorView<Header: View>: View {
     /// that would make switching a row off in the app sheet look like "same as inherited" and store
     /// nothing — quietly discarding the user's choice the moment the master came back on.
     private func inherited(_ slot: GestureSlots.Slot, config: SanneConfig) -> (enabled: Bool, actionId: String) {
-        let standardEnabled = GestureSlots.legacyEnabled(slot.legacyGate, config: config)
+        let standardEnabled = SannePreset.slotEnabled(slot, config: config)
         switch scope {
         case .global:
             return (standardEnabled, slot.defaultActionId)
@@ -476,14 +586,18 @@ extension GestureEditorView where Header == EmptyView {
     init(
         scope: GestureBindingScope = .global,
         fixedGroup: GestureSlots.Group? = nil,
+        extraGroups: [GestureSlots.Group] = [],
         pageTitle: String? = nil,
-        pageSubtitle: String? = nil
+        pageSubtitle: String? = nil,
+        dimSlots: Bool = false
     ) {
         self.init(
             scope: scope,
             fixedGroup: fixedGroup,
+            extraGroups: extraGroups,
             pageTitle: pageTitle,
-            pageSubtitle: pageSubtitle
+            pageSubtitle: pageSubtitle,
+            dimSlots: dimSlots
         ) { EmptyView() }
     }
 }
@@ -492,380 +606,56 @@ private struct SlotPickIdent: Identifiable {
     let id: String
 }
 
-// MARK: - Action picker sheet
-
-private struct ActionPickerSheet: View {
-    /// Observed so the Scripts section refreshes the moment a script is saved or deleted; the
-    /// catalog's own copy of the defs lives behind a lock that SwiftUI cannot observe.
-    @ObservedObject var store: ConfigStore
-    let slot: GestureSlots.Slot
+private struct ActionQuickMenu: View {
     let currentActionId: String
     let onPick: (String) -> Void
-    let onCancel: () -> Void
+    let onMore: () -> Void
 
-    @State private var query = ""
-    @State private var activeSheet: Modal?
-    @State private var deleting: CustomActionDef?
-
-    /// One presentation slot for both child sheets: stacking two `.sheet` modifiers on the same
-    /// view is unreliable, and a script can be created from the keystroke recorder's own row.
-    private enum Modal: Identifiable, Equatable {
-        case keystroke
-        case script(def: CustomActionDef, isNew: Bool)
-
-        var id: String {
-            switch self {
-            case .keystroke: return "keystroke"
-            case .script(let def, _): return def.id.uuidString
-            }
-        }
-    }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Choose action")
-                        .font(.headline)
-                    Text(slot.title)
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                Button("Cancel", action: onCancel)
-                    .keyboardShortcut(.cancelAction)
-            }
-            .padding(16)
-
-            HStack(spacing: 8) {
-                Button {
-                    activeSheet = .keystroke
-                } label: {
-                    Label("Record keystroke", systemImage: "keyboard")
-                }
-                .buttonStyle(.bordered)
-
-                Button {
-                    pickApplication()
-                } label: {
-                    Label("Open app…", systemImage: "app.badge")
-                }
-                .buttonStyle(.bordered)
-
-                Button {
-                    activeSheet = .script(def: CustomActionDef(), isNew: true)
-                } label: {
-                    Label("New script…", systemImage: "terminal")
-                }
-                .buttonStyle(.bordered)
-
-                Spacer()
-            }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 10)
-
-            HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.secondary)
-                TextField("Filter actions…", text: $query)
-                    .textFieldStyle(.plain)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .padding(.horizontal, 16)
-            .padding(.bottom, 12)
-
-            Divider()
-
-            List {
-                scriptsSection
-
-                ForEach(builtInSections, id: \.0) { cat, actions in
-                    Section(cat.rawValue) {
-                        ForEach(actions) { action in
-                            Button {
-                                onPick(action.id)
-                            } label: {
-                                HStack(spacing: 12) {
-                                    SanneIconBadge(
-                                        systemImage: glyph(for: action),
-                                        selected: action.id == currentActionId,
-                                        size: 26
-                                    )
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(action.title)
-                                            .font(.body.weight(.medium))
-                                            .foregroundStyle(.primary)
-                                        if action.id == slot.defaultActionId {
-                                            Text("Sanne Standard default")
-                                                .font(.caption2)
-                                                .foregroundStyle(.secondary)
-                                        } else if ActionCatalog.isDynamicAction(action.id) {
-                                            Text("Custom")
-                                                .font(.caption2)
-                                                .foregroundStyle(.secondary)
-                                        }
-                                    }
-                                    Spacer()
-                                    if action.id == currentActionId {
-                                        Image(systemName: "checkmark.circle.fill")
-                                            .foregroundStyle(Color.accentColor)
-                                    }
-                                }
-                                .padding(.vertical, 2)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                }
-            }
-            .listStyle(.inset)
-        }
-        .frame(width: 460, height: 540)
-        .sheet(item: $activeSheet) { modal in
-            switch modal {
-            case .keystroke:
-                KeystrokeRecorderSheet(
-                    onRecord: { keyCode, flags in
-                        let id = ActionCatalog.customKeystrokeId(keyCode: keyCode, flags: flags)
-                        activeSheet = nil
-                        onPick(id)
-                    },
-                    onCancel: {
-                        activeSheet = nil
-                    }
-                )
-            case .script(let def, let isNew):
-                CustomActionSheet(
-                    initial: def,
-                    onSave: { saved in
-                        store.update { $0.upsertCustomAction(saved) }
-                        activeSheet = nil
-                        // Creating a script from this picker is only ever in service of binding it,
-                        // so skip the extra trip through the list. Editing an existing one is a
-                        // separate intent and must not silently rebind the gesture.
-                        if isNew {
-                            onPick(ActionCatalog.customActionId(saved.id))
-                        }
-                    },
-                    onCancel: {
-                        activeSheet = nil
-                    }
-                )
-            }
-        }
-        .confirmationDialog(
-            "Delete “\(deleting?.displayName ?? "")”?",
-            isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
-            titleVisibility: .visible
-        ) {
-            Button("Delete", role: .destructive) {
-                if let def = deleting {
-                    store.update { $0.removeCustomAction(id: def.id) }
-                }
-                deleting = nil
-            }
-            Button("Cancel", role: .cancel) { deleting = nil }
-        } message: {
-            Text("Any gesture using this script goes back to its Sanne Standard default.")
-        }
-    }
-
-    // MARK: - Scripts
-
-    /// Rendered from the observed store rather than from `ActionCatalog.grouped`, whose script
-    /// entries come from a lock-protected mirror SwiftUI can't observe — the list would then go
-    /// stale after a save or delete. `.script` is filtered out of `builtInSections` so the two
-    /// sources can't produce duplicate rows.
-    private var scripts: [CustomActionDef] {
-        store.config.customActions.filter { ActionCatalog.matches(ActionCatalog.action(for: $0), query: query) }
-    }
-
-    private var builtInSections: [(ActionCatalog.Category, [ActionCatalog.Action])] {
-        ActionCatalog.grouped(filter: query, includingDynamic: currentActionId)
-            .filter { $0.0 != .script }
-    }
-
-    @ViewBuilder
-    private var scriptsSection: some View {
-        if !scripts.isEmpty {
-            Section(ActionCatalog.Category.script.rawValue) {
-                ForEach(scripts) { def in
-                    scriptRow(def)
-                }
-            }
-        }
-    }
-
-    /// The picking button and the edit / delete buttons are siblings in one `HStack`, never nested:
-    /// a button inside a button has ambiguous hit-testing, and tapping “edit” would also fire the
-    /// row's own pick action.
-    private func scriptRow(_ def: CustomActionDef) -> some View {
-        let actionId = ActionCatalog.customActionId(def.id)
-        return HStack(spacing: 8) {
-            Button {
-                onPick(actionId)
-            } label: {
-                HStack(spacing: 12) {
-                    SanneIconBadge(
-                        systemImage: def.kind.glyph,
-                        selected: actionId == currentActionId,
-                        size: 26
-                    )
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(def.displayName)
-                            .font(.body.weight(.medium))
-                            .foregroundStyle(.primary)
-                        Text(def.kind.displayName)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer(minLength: 0)
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-
-            Button {
-                activeSheet = .script(def: def, isNew: false)
-            } label: {
-                Image(systemName: "pencil")
-            }
-            .buttonStyle(.borderless)
-            .help("Edit this script")
-
-            Button {
-                deleting = def
-            } label: {
-                Image(systemName: "trash")
-            }
-            .buttonStyle(.borderless)
-            .help("Delete this script")
-        }
-        .padding(.vertical, 3)
-    }
-
-    private func glyph(for action: ActionCatalog.Action) -> String {
-        if ActionCatalog.parseLaunchApp(action.id) != nil { return "app.fill" }
-        if ActionCatalog.parseCustomKeystroke(action.id) != nil { return "keyboard" }
-        switch action.category {
-        case .window: return "rectangle.split.2x1"
-        case .clicks: return "cursorarrow.click"
-        case .system: return "macwindow.on.rectangle"
-        case .dock: return "dock.rectangle"
-        case .menubar: return "menubar.rectangle"
-        case .browser: return "safari"
-        case .keyboard: return "keyboard"
-        case .apps: return "app.fill"
-        case .script: return "terminal"
-        case .special: return "sparkles"
-        }
-    }
-
-    private func pickApplication() {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = false
-        panel.allowedContentTypes = [.application]
-        panel.directoryURL = URL(fileURLWithPath: "/Applications")
-        panel.message = "Choose an application to open when this gesture fires."
-        panel.prompt = "Choose"
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        guard let bundle = Bundle(url: url), let bid = bundle.bundleIdentifier, !bid.isEmpty else {
-            Log.warn(.config, "Open app picker: no bundle id for \(url.path)")
-            return
-        }
-        onPick(ActionCatalog.launchAppId(bundleId: bid))
-    }
-}
-
-// MARK: - Keystroke recorder
-
-private struct KeystrokeRecorderSheet: View {
-    let onRecord: (CGKeyCode, CGEventFlags) -> Void
-    let onCancel: () -> Void
-
-    @State private var preview = "Press a key combination…"
-    @State private var captured: (CGKeyCode, CGEventFlags)?
-    @State private var monitor: Any?
+    private static let common: [String] = [
+        ActionCatalog.ID.none,
+        ActionCatalog.ID.clickLeft,
+        ActionCatalog.ID.clickRight,
+        ActionCatalog.ID.clickMiddle,
+        ActionCatalog.ID.snapLeftHalf,
+        ActionCatalog.ID.snapRightHalf,
+        ActionCatalog.ID.snapMaximize,
+        ActionCatalog.ID.minimize,
+        ActionCatalog.ID.close,
+        ActionCatalog.ID.fullscreen,
+        ActionCatalog.ID.missionControl,
+        ActionCatalog.ID.appExpose,
+        ActionCatalog.ID.browserPrevTab,
+        ActionCatalog.ID.browserNextTab,
+        ActionCatalog.ID.browserBack,
+        ActionCatalog.ID.browserForward,
+        ActionCatalog.ID.restore,
+    ]
 
     var body: some View {
-        VStack(spacing: 20) {
-            VStack(spacing: 6) {
-                Text("Record keystroke")
-                    .font(.headline)
-                Text("Hold modifiers, then press a key. Escape cancels.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-            }
-
-            Text(preview)
-                .font(.system(size: 28, weight: .semibold, design: .rounded))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 28)
-                .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .strokeBorder(Color.accentColor.opacity(captured == nil ? 0.35 : 0.8), lineWidth: 1.5)
-                )
-
-            HStack {
-                Button("Cancel", action: finishCancel)
-                    .keyboardShortcut(.cancelAction)
-                Spacer()
-                Button("Use keystroke") {
-                    if let c = captured {
-                        stopMonitor()
-                        onRecord(c.0, c.1)
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Self.common, id: \.self) { id in
+                Button {
+                    onPick(id)
+                } label: {
+                    HStack {
+                        Text(ActionCatalog.title(for: id))
+                        Spacer()
+                        if id == currentActionId {
+                            Image(systemName: "checkmark")
+                        }
                     }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 5)
+                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(captured == nil)
-                .keyboardShortcut(.defaultAction)
+                .buttonStyle(.plain)
             }
+            Divider().padding(.vertical, 4)
+            Button("More…", action: onMore)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
         }
-        .padding(24)
-        .frame(width: 380)
-        .onAppear(perform: startMonitor)
-        .onDisappear(perform: stopMonitor)
-    }
-
-    private func startMonitor() {
-        stopMonitor()
-        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            // Escape with no capture → cancel; with capture → clear and keep listening
-            if event.keyCode == 53 {
-                if captured != nil {
-                    captured = nil
-                    preview = "Press a key combination…"
-                    return nil
-                }
-                finishCancel()
-                return nil
-            }
-            if ActionCatalog.isModifierKeyCode(event.keyCode) {
-                return nil
-            }
-            let flags = ActionCatalog.cgFlags(from: event.modifierFlags)
-            let key = CGKeyCode(event.keyCode)
-            captured = (key, flags)
-            preview = ActionCatalog.formatKeystroke(keyCode: key, flags: flags)
-            return nil
-        }
-    }
-
-    private func stopMonitor() {
-        if let monitor {
-            NSEvent.removeMonitor(monitor)
-            self.monitor = nil
-        }
-    }
-
-    private func finishCancel() {
-        stopMonitor()
-        onCancel()
+        .padding(.vertical, 6)
+        .frame(minWidth: 220)
     }
 }

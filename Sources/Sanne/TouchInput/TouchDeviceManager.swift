@@ -13,6 +13,7 @@ final class TouchDeviceManager: @unchecked Sendable {
     private var started = false
     private var listeners: [UUID: (TouchFrame) -> Void] = [:]
     private var totalCallbacks = 0
+    private var trackpadKind: DeviceKind = .builtInTrackpad
 
     private static let callback: PrivateMT.ContactCallback = { device, touches, num, _, _ in
         TouchDeviceManager.shared.handle(device: device, touches: touches, count: Int(num))
@@ -44,14 +45,18 @@ final class TouchDeviceManager: @unchecked Sendable {
             }
         }
 
+        lock.lock()
+        let kind = trackpadKind
+        lock.unlock()
+
         if n <= 15 {
-            Log.debug(.mt, "trackpad cb#\(n) dev=\(device) num=\(count)")
+            Log.debug(.mt, "trackpad cb#\(n) dev=\(device) num=\(count) kind=\(kind.rawValue)")
         }
 
         emit(TouchFrame(
             timestamp: Date(),
             deviceID: Int64(device),
-            deviceKind: .builtInTrackpad,
+            deviceKind: kind,
             touches: points
         ))
     }
@@ -91,20 +96,25 @@ final class TouchDeviceManager: @unchecked Sendable {
         }
         retainedLists.append(list.array)
 
+        var kind: DeviceKind = .builtInTrackpad
         for (i, d) in list.devices.enumerated() {
-            let builtIn = PrivateMT.deviceIsBuiltIn(d)
-            let opaque = PrivateMT.deviceIsOpaqueSurface(d)
-            Log.info(.touch, "trackpad-path[\(i)] builtIn=\(builtIn) opaque=\(opaque)")
-            // NEVER register external devices here — MTRegisterContactFrameCallback
-            // replaces any prior callback (MagicMouseTapController would stop receiving frames).
-            if !builtIn {
-                Log.info(.touch, "  skip external (owned by MagicMouseTapController)")
+            let classified = PrivateMT.classify(d)
+            Log.info(
+                .touch,
+                "trackpad-path[\(i)] kind=\(classified.rawValue) builtIn=\(PrivateMT.deviceIsBuiltIn(d)) " +
+                "opaque=\(PrivateMT.deviceIsOpaqueSurface(d)) force=\(PrivateMT.deviceSupportsForce(d))"
+            )
+            // Only trackpads. Registering a Magic Mouse here would replace its tap callback.
+            guard TouchDeviceClassifier.isTrackpad(classified) else {
+                Log.info(.touch, "  skip \(classified.rawValue) (owned by MagicMouseTapController)")
                 continue
             }
+            if classified == .magicTrackpad { kind = .magicTrackpad }
             devices.append(d)
             PrivateMT.register(d, Self.callback)
             PrivateMT.start(d)
         }
+        trackpadKind = kind
 
         started = true
         Log.info(.touch, "TouchDeviceManager devices=\(devices.count)")

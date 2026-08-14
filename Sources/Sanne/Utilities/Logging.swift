@@ -25,7 +25,7 @@ enum LogLevel: String, Comparable {
 }
 
 enum LogCategory: String {
-    case app, touch, mt, tap, click, gesture, zone, window, config, ax
+    case app, touch, mt, tap, click, key, gesture, zone, window, config, ax
 }
 
 struct LogLine: Identifiable, Equatable {

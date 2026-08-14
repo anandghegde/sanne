@@ -218,13 +218,7 @@ final class ModifierDragController {
 
     /// Pick resize edges from cursor position inside the window (thirds / near-edge).
     private static func nearestEdges(cursorAppKit: CGPoint, frameAX: CGRect) -> EdgeSet {
-        let primaryH = NSScreen.screens.first?.frame.height ?? 0
-        let frameAppKit = CGRect(
-            x: frameAX.minX,
-            y: primaryH - frameAX.maxY,
-            width: frameAX.width,
-            height: frameAX.height
-        )
+        let frameAppKit = LayoutGeometry.axToAppKit(frameAX)
         let relX = frameAppKit.width > 0 ? (cursorAppKit.x - frameAppKit.minX) / frameAppKit.width : 0.5
         let relY = frameAppKit.height > 0 ? (cursorAppKit.y - frameAppKit.minY) / frameAppKit.height : 0.5
 

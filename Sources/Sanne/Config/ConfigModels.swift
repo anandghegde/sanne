@@ -12,7 +12,7 @@ struct SanneConfig: Codable, Equatable {
     var window: WindowConfig = .init()
     var keyboard: KeyboardConfig = .init()
     var modifierDrag: ModifierDragConfig = .init()
-    /// When frontmost app matches an override with `disabled`, Sanne pauses for that app.
+    /// When frontmost app matches an override with `isActive`, Sanne pauses for that app.
     var appOverrides: [AppOverride] = []
     /// Per-gesture remap / enable overrides keyed by `GestureSlots` id.
     var gestureOverrides: [String: GestureOverrideEntry] = [:]
@@ -23,6 +23,7 @@ struct SanneConfig: Codable, Equatable {
     var customActions: [CustomActionDef] = []
     /// Brief on-screen label naming the action a gesture just fired.
     var hud: HUDConfig = .init()
+    var experimental: ExperimentalConfig = .init()
     var launchAtLogin: Bool = false
 
     static let `default` = SanneConfig()
@@ -51,13 +52,14 @@ struct SanneConfig: Codable, Equatable {
         ) ?? [:]
         customActions = try c.decodeIfPresent([CustomActionDef].self, forKey: .customActions) ?? []
         hud = try c.decodeIfPresent(HUDConfig.self, forKey: .hud) ?? .init()
+        experimental = try c.decodeIfPresent(ExperimentalConfig.self, forKey: .experimental) ?? .init()
         launchAtLogin = try c.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? false
     }
 
-    /// Active override for the frontmost app, if any (`disabled` toggle still on).
+    /// Active override for the frontmost app, if any (`isActive` still on).
     func activeOverride(forFrontmostBundleId bundleId: String?) -> AppOverride? {
         guard let bundleId else { return nil }
-        return appOverrides.first { $0.bundleId == bundleId && $0.disabled }
+        return appOverrides.first { $0.bundleId == bundleId && $0.isActive }
     }
 
     /// True when Sanne should fully pause for the given frontmost bundle id (legacy / scope `.all`).
@@ -84,6 +86,22 @@ struct SanneConfig: Codable, Equatable {
     func pausesModifierDrag(forFrontmostBundleId bundleId: String?) -> Bool {
         guard let o = activeOverride(forFrontmostBundleId: bundleId) else { return false }
         return o.scope.pausesModifierDrag
+    }
+
+    /// v1 → v2: copy each legacy enable bool into a slot override when it differs
+    /// from the slot default, then bump `version`. Existing remaps are left alone.
+    mutating func migrateToSlotEnablement() {
+        guard version < 2 else { return }
+        for slot in GestureSlots.all {
+            if gestureOverrides[slot.id]?.enabled != nil { continue }
+            let legacy = GestureSlots.legacyEnabled(slot.legacyGate, config: self)
+            let fallback = GestureSlots.defaultEnabled(for: slot.legacyGate)
+            guard legacy != fallback else { continue }
+            var entry = gestureOverrides[slot.id] ?? GestureOverrideEntry()
+            entry.enabled = legacy
+            gestureOverrides[slot.id] = entry
+        }
+        version = 2
     }
 }
 
@@ -120,6 +138,8 @@ struct MagicMouseTapConfig: Codable, Equatable {
     var deadZone: Double = 0.08
     /// −2 stricter (fewer scroll false-clicks) … +2 more taps accepted. Default 0.
     var sensitivity: Int = 0
+    /// Physical right-hold + left tap still left-clicks (FPS look + fire). Off by default.
+    var gamingMode: Bool = false
 
     init() {}
 
@@ -142,6 +162,7 @@ struct MagicMouseTapConfig: Codable, Equatable {
         leftRightSplit = try c.decodeIfPresent(Double.self, forKey: .leftRightSplit) ?? 0.5
         deadZone = try c.decodeIfPresent(Double.self, forKey: .deadZone) ?? 0.08
         sensitivity = try c.decodeIfPresent(Int.self, forKey: .sensitivity) ?? 0
+        gamingMode = try c.decodeIfPresent(Bool.self, forKey: .gamingMode) ?? false
     }
 }
 
@@ -184,6 +205,17 @@ struct DockGestureConfig: Codable, Equatable {
     var pinchNewWindow: Bool = true
     /// Pinch in → quit (⌘Q). Off by default — easy to trigger by accident.
     var pinchQuit: Bool = false
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
+        swipeActivate = try c.decodeIfPresent(Bool.self, forKey: .swipeActivate) ?? true
+        swipeHide = try c.decodeIfPresent(Bool.self, forKey: .swipeHide) ?? true
+        pinchNewWindow = try c.decodeIfPresent(Bool.self, forKey: .pinchNewWindow) ?? true
+        pinchQuit = try c.decodeIfPresent(Bool.self, forKey: .pinchQuit) ?? false
+    }
 }
 
 struct MenubarGestureConfig: Codable, Equatable {
@@ -194,6 +226,16 @@ struct MenubarGestureConfig: Codable, Equatable {
     var swipeHideOthers: Bool = true
     /// Swipe up → unminimize / focus frontmost app windows.
     var swipeUnminimize: Bool = true
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
+        swipeCycleWindows = try c.decodeIfPresent(Bool.self, forKey: .swipeCycleWindows) ?? true
+        swipeHideOthers = try c.decodeIfPresent(Bool.self, forKey: .swipeHideOthers) ?? true
+        swipeUnminimize = try c.decodeIfPresent(Bool.self, forKey: .swipeUnminimize) ?? true
+    }
 }
 
 struct TrackpadConfig: Codable, Equatable {
@@ -234,6 +276,19 @@ struct WindowConfig: Codable, Equatable {
     var haptics: Bool = true
 }
 
+/// Gated features that are not day-one. Off until the user turns them on.
+struct ExperimentalConfig: Codable, Equatable {
+    /// Move the focused window to the previous / next Space. Private CGS; HUD on failure.
+    var windowToSpace: Bool = false
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        windowToSpace = try c.decodeIfPresent(Bool.self, forKey: .windowToSpace) ?? false
+    }
+}
+
 /// The overlay that names the action a gesture just fired.
 ///
 /// On by default: remapped gestures are invisible by nature, and an action that fires somewhere
@@ -253,7 +308,7 @@ struct HUDConfig: Codable, Equatable {
 /// Global keyboard window snapping (⌃⌥ chord — never bare arrows).
 struct KeyboardConfig: Codable, Equatable {
     var enabled: Bool = true
-    /// ⌃⌥ + ←/→ cycle left/right layouts; ↑ maximize; ↓ almost-maximize; ↩ center.
+    /// ⌃⌥ + ←/→ cycle left/right layouts; ↑ maximize; ↓ restore; ↩ center.
     var snapWithArrows: Bool = true
     /// When true, repeated ←/→ cycles half → third → two-thirds.
     var cycleThirds: Bool = true
@@ -344,22 +399,26 @@ enum AppOverrideScope: String, Codable, Equatable, CaseIterable, Identifiable {
 struct AppOverride: Codable, Equatable, Identifiable {
     var bundleId: String
     var displayName: String
-    /// When true, the override is active (toggle off keeps the row without pausing).
-    var disabled: Bool = true
+    /// When true, the override pauses the selected scope. Off keeps the row without pausing.
+    var isActive: Bool = true
     /// Which subsystems pause while active. Default `.all` matches legacy behavior.
     var scope: AppOverrideScope = .all
 
     var id: String { bundleId }
 
+    enum CodingKeys: String, CodingKey {
+        case bundleId, displayName, isActive, disabled, scope
+    }
+
     init(
         bundleId: String,
         displayName: String,
-        disabled: Bool = true,
+        isActive: Bool = true,
         scope: AppOverrideScope = .all
     ) {
         self.bundleId = bundleId
         self.displayName = displayName
-        self.disabled = disabled
+        self.isActive = isActive
         self.scope = scope
     }
 
@@ -367,7 +426,22 @@ struct AppOverride: Codable, Equatable, Identifiable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         bundleId = try c.decode(String.self, forKey: .bundleId)
         displayName = try c.decodeIfPresent(String.self, forKey: .displayName) ?? bundleId
-        disabled = try c.decodeIfPresent(Bool.self, forKey: .disabled) ?? true
+        // `disabled` was the 0.2.0 name for the same bit (true = override is on).
+        if let active = try c.decodeIfPresent(Bool.self, forKey: .isActive) {
+            isActive = active
+        } else if let disabled = try c.decodeIfPresent(Bool.self, forKey: .disabled) {
+            isActive = disabled
+        } else {
+            isActive = true
+        }
         scope = try c.decodeIfPresent(AppOverrideScope.self, forKey: .scope) ?? .all
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(bundleId, forKey: .bundleId)
+        try c.encode(displayName, forKey: .displayName)
+        try c.encode(isActive, forKey: .isActive)
+        try c.encode(scope, forKey: .scope)
     }
 }

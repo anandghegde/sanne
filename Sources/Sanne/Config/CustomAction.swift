@@ -6,7 +6,7 @@ import Foundation
 /// than by name, so renaming an action keeps every gesture pointed at it.
 struct CustomActionDef: Codable, Equatable, Identifiable {
     enum Kind: String, Codable, CaseIterable, Identifiable {
-        /// `payload` is a shell script, run through `/bin/zsh -lc`.
+        /// `payload` is a shell script, run through `zsh -c` (no login profile).
         case shell
         /// `payload` is AppleScript source, run through `osascript -e` so it shares the same
         /// timeout and error logging as the other kinds.

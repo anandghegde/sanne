@@ -1,116 +1,183 @@
 import AppKit
 import Carbon.HIToolbox
+import CoreGraphics
 
-/// Global ⌃⌥ window snap shortcuts (Rectangle-style chord; never bare arrows).
-@MainActor
-final class KeyboardSnapMonitor {
+/// ⌃⌥ window snap via a CGEvent tap so the chord can be consumed (Terminal does not also see it).
+/// Input Monitoring is requested only while keyboard snap is enabled.
+final class KeyboardSnapMonitor: @unchecked Sendable {
     static let shared = KeyboardSnapMonitor()
 
-    private var globalMonitor: Any?
-    private var localMonitor: Any?
+    private var tap: CFMachPort?
+    private var runLoopSource: CFRunLoopSource?
+    private let lock = NSLock()
     private var configProvider: () -> SanneConfig = { .default }
     private var isPaused: () -> Bool = { false }
+    private var snapshot = SanneConfig()
+    private var snapshotPaused = false
 
     private init() {}
 
     func start(config: @escaping () -> SanneConfig, paused: @escaping () -> Bool) {
+        stop()
         configProvider = config
         isPaused = paused
-        stop()
-
-        let mask: NSEvent.EventTypeMask = [.keyDown]
-        globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: mask) { [weak self] event in
-            Task { @MainActor in
-                self?.handle(event)
-            }
-        }
-        localMonitor = NSEvent.addLocalMonitorForEvents(matching: mask) { [weak self] event in
-            if self?.handle(event) == true {
-                return nil
-            }
-            return event
-        }
+        refreshSnapshot()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(configChanged),
+            name: .sanneConfigDidChange,
+            object: nil
+        )
+        installTapIfNeeded()
         Log.info(.app, "KeyboardSnapMonitor started (⌃⌥ arrows)")
     }
 
     func stop() {
-        if let globalMonitor {
-            NSEvent.removeMonitor(globalMonitor)
-            self.globalMonitor = nil
-        }
-        if let localMonitor {
-            NSEvent.removeMonitor(localMonitor)
-            self.localMonitor = nil
-        }
+        NotificationCenter.default.removeObserver(self, name: .sanneConfigDidChange, object: nil)
+        removeTap()
     }
 
-    @discardableResult
-    private func handle(_ event: NSEvent) -> Bool {
-        if isPaused() { return false }
+    @objc private func configChanged() {
+        refreshSnapshot()
+        installTapIfNeeded()
+    }
+
+    private func refreshSnapshot() {
         let cfg = configProvider()
+        let paused = isPaused()
+        lock.lock()
+        snapshot = cfg
+        snapshotPaused = paused
+        lock.unlock()
+    }
+
+    private func installTapIfNeeded() {
+        lock.lock()
+        let enabled = snapshot.keyboard.enabled
+        lock.unlock()
+
+        if !enabled {
+            removeTap()
+            return
+        }
+        if tap != nil { return }
+        Permissions.requestInputMonitoring()
+
+        let mask = (1 << CGEventType.keyDown.rawValue)
+        guard let port = CGEvent.tapCreate(
+            tap: .cgSessionEventTap,
+            place: .headInsertEventTap,
+            options: .defaultTap,
+            eventsOfInterest: CGEventMask(mask),
+            callback: { _, type, event, refcon in
+                guard type == .keyDown else {
+                    return Unmanaged.passUnretained(event)
+                }
+                let monitor = Unmanaged<KeyboardSnapMonitor>.fromOpaque(refcon!).takeUnretainedValue()
+                if monitor.handle(event) {
+                    return nil
+                }
+                return Unmanaged.passUnretained(event)
+            },
+            userInfo: Unmanaged.passUnretained(self).toOpaque()
+        ) else {
+            Log.warn(.app, "KeyboardSnapMonitor: CGEvent tap failed — grant Input Monitoring")
+            return
+        }
+        tap = port
+        let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, port, 0)
+        runLoopSource = source
+        CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
+        CGEvent.tapEnable(tap: port, enable: true)
+        Log.info(.app, "KeyboardSnapMonitor event tap armed")
+    }
+
+    private func removeTap() {
+        if let source = runLoopSource {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
+        }
+        if let tap {
+            CGEvent.tapEnable(tap: tap, enable: false)
+        }
+        runLoopSource = nil
+        tap = nil
+    }
+
+    /// Returns true when the chord was consumed.
+    @discardableResult
+    private func handle(_ event: CGEvent) -> Bool {
+        lock.lock()
+        let paused = snapshotPaused
+        let cfg = snapshot
+        lock.unlock()
+
+        if paused { return false }
         guard cfg.keyboard.enabled else { return false }
 
-        let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        let wantsControlOption =
-            mods.contains(.control) &&
-            mods.contains(.option) &&
-            !mods.contains(.shift)
+        let flags = event.flags
+        let hasControl = flags.contains(.maskControl)
+        let hasOption = flags.contains(.maskAlternate)
+        let hasShift = flags.contains(.maskShift)
+        let hasCommand = flags.contains(.maskCommand)
+        guard hasControl, hasOption, !hasShift else { return false }
 
-        guard wantsControlOption else { return false }
-
-        let gap = CGFloat(cfg.window.gap)
-        let haptics = cfg.window.haptics
-        let withCommand = mods.contains(.command)
-
-        // ⌃⌥⌘ ←/→ → adjacent display
-        if withCommand {
-            guard cfg.keyboard.moveToAdjacentDisplay else { return false }
-            switch Int(event.keyCode) {
-            case kVK_LeftArrow:
-                let ok = WindowManager.shared.moveFocusedToAdjacentDisplay(direction: -1, gap: gap)
-                if ok {
-                    Log.info(.window, "keyboard → display left")
-                    Haptics.fire(enabled: haptics)
-                }
-                return ok
-            case kVK_RightArrow:
-                let ok = WindowManager.shared.moveFocusedToAdjacentDisplay(direction: 1, gap: gap)
-                if ok {
-                    Log.info(.window, "keyboard → display right")
-                    Haptics.fire(enabled: haptics)
-                }
-                return ok
-            default:
-                return false
+        let keyCode = Int(event.getIntegerValueField(.keyboardEventKeycode))
+        let slotId: String?
+        if hasCommand {
+            switch keyCode {
+            case kVK_LeftArrow: slotId = GestureSlots.ID.kbDisplayLeft
+            case kVK_RightArrow: slotId = GestureSlots.ID.kbDisplayRight
+            default: slotId = nil
+            }
+        } else {
+            switch keyCode {
+            case kVK_LeftArrow: slotId = GestureSlots.ID.kbLeft
+            case kVK_RightArrow: slotId = GestureSlots.ID.kbRight
+            case kVK_UpArrow: slotId = GestureSlots.ID.kbUp
+            case kVK_DownArrow: slotId = GestureSlots.ID.kbDown
+            case kVK_Return, kVK_ANSI_KeypadEnter: slotId = GestureSlots.ID.kbReturn
+            default: slotId = nil
             }
         }
+        guard let slotId else { return false }
 
-        guard cfg.keyboard.snapWithArrows else { return false }
-        // ⌃⌥ only (no ⌘) for snap
-        guard !withCommand else { return false }
-
-        let ok: Bool
-        switch Int(event.keyCode) {
-        case kVK_LeftArrow:
-            ok = WindowManager.shared.cycleLeftFocused(gap: gap, enableThirds: cfg.keyboard.cycleThirds)
-            if ok { Log.info(.window, "keyboard → cycle left") }
-        case kVK_RightArrow:
-            ok = WindowManager.shared.cycleRightFocused(gap: gap, enableThirds: cfg.keyboard.cycleThirds)
-            if ok { Log.info(.window, "keyboard → cycle right") }
-        case kVK_UpArrow:
-            ok = WindowManager.shared.snapFocused(layout: .maximize, gap: gap)
-            if ok { Log.info(.window, "keyboard → maximize") }
-        case kVK_DownArrow:
-            ok = WindowManager.shared.snapFocused(layout: .almostMaximize, gap: gap)
-            if ok { Log.info(.window, "keyboard → almostMaximize") }
-        case kVK_Return, kVK_ANSI_KeypadEnter:
-            ok = WindowManager.shared.snapFocused(layout: .centerLarge, gap: gap)
-            if ok { Log.info(.window, "keyboard → centerLarge") }
-        default:
+        let front = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        guard let resolved = BindingResolver.resolve(
+            slotId: slotId,
+            config: cfg,
+            frontmostBundleId: front
+        ), resolved.enabled else {
             return false
         }
 
-        if ok { Haptics.fire(enabled: haptics) }
-        return ok
+        let gap = CGFloat(cfg.window.gap)
+        DispatchQueue.main.async {
+            GestureActivity.announce(slotId: slotId)
+            let ctx = ActionContext(window: nil, dockApp: nil, gap: gap, haptics: cfg.window.haptics)
+            // Repeat ←/→ still cycle thirds when the slot is still the default snap.
+            let ok: Bool
+            if cfg.keyboard.cycleThirds, resolved.actionId == ActionCatalog.ID.snapLeftHalf {
+                ok = WindowManager.shared.cycleLeftFocused(gap: gap, enableThirds: true)
+                if ok, cfg.hud.enabled {
+                    HUDController.shared.show(title: ActionCatalog.title(for: resolved.actionId))
+                }
+            } else if cfg.keyboard.cycleThirds, resolved.actionId == ActionCatalog.ID.snapRightHalf {
+                ok = WindowManager.shared.cycleRightFocused(gap: gap, enableThirds: true)
+                if ok, cfg.hud.enabled {
+                    HUDController.shared.show(title: ActionCatalog.title(for: resolved.actionId))
+                }
+            } else {
+                let result = ActionRunner.execute(resolved.actionId, context: ctx)
+                if cfg.hud.enabled {
+                    if result.ok, ActionCatalog.announcesInHUD(resolved.actionId), let title = result.hudTitle {
+                        HUDController.shared.show(title: title)
+                    } else if !result.ok, let err = result.errorTitle {
+                        HUDController.shared.show(title: err)
+                    }
+                }
+                _ = result.ok
+            }
+        }
+        return true
     }
 }

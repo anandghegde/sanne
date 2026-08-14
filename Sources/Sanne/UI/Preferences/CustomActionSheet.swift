@@ -92,7 +92,7 @@ struct CustomActionSheet: View {
         switch kind {
         case .shell:
             scriptField(
-                hint: "Run through `/bin/zsh -lc`, so your login `PATH` and profile apply."
+                hint: "Run through `zsh -c`. Login profile (`.zprofile`) is not loaded."
             )
         case .appleScript:
             // The user-facing consequence only. Why `osascript` rather than `NSAppleScript` is a

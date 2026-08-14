@@ -5,71 +5,108 @@ struct TutorialView: View {
     var onOpenCheatSheet: () -> Void = {}
     var onFinished: () -> Void = {}
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     @State private var stepIndex = 0
     @State private var stepCompleted = false
     @State private var statusLine = ""
+    @State private var hasMagicMouse = IOKitHints.applePointers().contains(where: \.isMouse)
 
     private var steps: [Step] {
-        [
+        var list: [Step] = [
             Step(
                 id: "welcome",
                 title: "You’re almost set",
-                body: "Sanne lives in the menu bar. This quick tour covers the two moments that matter most — then a few extras.",
+                body: hasMagicMouse
+                    ? "Sanne lives in the menu bar. This tour covers silent taps and titlebar snap."
+                    : "Sanne lives in the menu bar. This tour covers titlebar snap and a middle-click.\n\nConnect a Magic Mouse for silent taps.",
                 systemImage: "hand.draw",
+                diagram: nil,
                 signal: nil,
                 hint: nil
-            ),
-            Step(
-                id: "mm-tap",
-                title: "Silent click (Magic Mouse)",
-                body: "If you have a Magic Mouse, lightly tap the left side of the surface — no physical click needed.\n\nNo Magic Mouse? Skip this step.",
-                systemImage: "computermouse",
-                signal: .magicMouseClick,
-                hint: "Waiting for a left tap…"
-            ),
+            )
+        ]
+        if hasMagicMouse {
+            list.append(
+                Step(
+                    id: "mm-tap",
+                    title: "Silent click",
+                    body: "Lightly tap the left side of the Magic Mouse surface — no physical click needed.",
+                    systemImage: "computermouse",
+                    diagram: .mouse(1, .tap, side: .left),
+                    signal: .magicMouseClick,
+                    hint: "Waiting for a left tap…"
+                )
+            )
+        }
+        list.append(
             Step(
                 id: "titlebar",
                 title: "Snap a window",
-                body: "1. Open any window (Finder is fine)\n2. Put the pointer on the title bar\n3. Two-finger swipe right on the trackpad\n\nThe window should snap to the right half. Swipe the same way again to restore.",
+                body: "1. Open any window (Finder is fine)\n2. Put the pointer on the title bar\n3. Two-finger swipe right",
                 systemImage: "rectangle.split.2x1",
+                diagram: .trackpad(2, .swipe(.right), zone: .topEdge),
                 signal: .titlebarSnap,
                 hint: "Waiting for a titlebar snap…"
-            ),
-            Step(
-                id: "middle",
-                title: "Middle-click (optional)",
-                body: "On the trackpad, three-finger tap in free space → middle-click (handy for browser tabs).\n\nOn Magic Mouse: two- or three-finger touch also middle-clicks.",
-                systemImage: "hand.tap",
-                signal: .trackpadMiddleClick,
-                hint: "Waiting for middle-click… (or Skip)"
-            ),
-            Step(
-                id: "more",
-                title: "Keyboard & more",
-                body: "• ⌃⌥ + arrows — snap / cycle thirds\n• ⌃⌥⌘ + ←/→ — move to another display\n• ⌥⌘ + drag — move window from anywhere\n• ⌃⌘ + drag — resize from nearest edge\n• Trackpad: 3-finger drag — select text / drag items\n• Magic Mouse: 2 fingers on top edge + move → drag window\n\nDock icons and the menu bar also accept two-finger swipes. Remap any gesture on its device or zone page in Settings (Magic Mouse, Trackpad, Windows, Dock, Menubar) — including common keystrokes.",
-                systemImage: "keyboard",
-                signal: nil,
-                hint: nil
-            ),
+            )
+        )
+        if hasMagicMouse {
+            list.append(
+                Step(
+                    id: "middle",
+                    title: "Middle-click",
+                    body: "Two- or three-finger touch on the Magic Mouse — handy for browser tabs.",
+                    systemImage: "hand.tap",
+                    diagram: .mouse(2, .touch),
+                    signal: .trackpadMiddleClick,
+                    hint: "Waiting for a middle-click…"
+                )
+            )
+        } else {
+            list.append(
+                Step(
+                    id: "middle",
+                    title: "Middle-click",
+                    body: "Three-finger tap in free space on the trackpad — handy for browser tabs.",
+                    systemImage: "hand.tap",
+                    diagram: .trackpad(3, .tap),
+                    signal: .trackpadMiddleClick,
+                    hint: "Waiting for a three-finger tap…"
+                )
+            )
+            list.append(
+                Step(
+                    id: "dock",
+                    title: "Dock swipe (optional)",
+                    body: "Two-finger swipe up on a Dock icon to activate that app.",
+                    systemImage: "dock.rectangle",
+                    diagram: .trackpad(2, .swipe(.up), zone: .bottomEdge),
+                    signal: .dockActivate,
+                    hint: "Waiting for a Dock swipe up…"
+                )
+            )
+        }
+        list.append(
             Step(
                 id: "done",
                 title: "You’re ready",
-                body: "Open Settings anytime from the menu bar to tweak or turn off individual gestures. Reset to Sanne Standard if you want the defaults back.",
+                body: "⌃⌥ arrows snap. Remap anything in Settings.",
                 systemImage: "checkmark.circle",
+                diagram: nil,
                 signal: nil,
                 hint: nil
-            ),
-        ]
+            )
+        )
+        return list
     }
 
-    private var step: Step { steps[stepIndex] }
+    private var step: Step { steps[min(stepIndex, steps.count - 1)] }
     private var isLast: Bool { stepIndex >= steps.count - 1 }
     private var isFirst: Bool { stepIndex == 0 }
-    private var progress: Double { Double(stepIndex + 1) / Double(steps.count) }
+    private var progress: Double { Double(stepIndex + 1) / Double(max(steps.count, 1)) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Progress header
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
                     Text("Tutorial")
@@ -87,7 +124,7 @@ struct TutorialView: View {
                         Capsule()
                             .fill(Color.accentColor)
                             .frame(width: max(8, geo.size.width * progress))
-                            .animation(.easeInOut(duration: 0.25), value: stepIndex)
+                            .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: stepIndex)
                     }
                 }
                 .frame(height: 4)
@@ -96,15 +133,19 @@ struct TutorialView: View {
             .padding(.top, 20)
             .padding(.bottom, 8)
 
-            VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 16) {
                 HStack(alignment: .top, spacing: 16) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .fill(Color.accentColor.opacity(0.14))
-                            .frame(width: 56, height: 56)
-                        Image(systemName: step.systemImage)
-                            .font(.system(size: 24, weight: .semibold))
-                            .foregroundStyle(Color.accentColor)
+                    if let diagram = step.diagram {
+                        GestureDiagramView(diagram: diagram, size: 80)
+                    } else {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .fill(Color.accentColor.opacity(0.14))
+                                .frame(width: 56, height: 56)
+                            Image(systemName: step.systemImage)
+                                .font(.system(size: 24, weight: .semibold))
+                                .foregroundStyle(Color.accentColor)
+                        }
                     }
 
                     VStack(alignment: .leading, spacing: 8) {
@@ -185,9 +226,10 @@ struct TutorialView: View {
             }
             .padding(24)
         }
-        .frame(width: 540, height: 400)
+        .frame(width: 540, height: 440)
         .background(Color(nsColor: .windowBackgroundColor))
         .onAppear {
+            hasMagicMouse = IOKitHints.applePointers().contains(where: \.isMouse)
             stepCompleted = step.signal == nil
             statusLine = step.hint ?? ""
         }
@@ -233,6 +275,7 @@ struct TutorialView: View {
         let title: String
         let body: String
         let systemImage: String
+        let diagram: GestureDiagram?
         let signal: TutorialSignal?
         let hint: String?
     }

@@ -9,6 +9,85 @@ final class ConfigRoundTripTests: XCTestCase {
     }()
     private let decoder = JSONDecoder()
 
+    func testVersion020FixtureLoadsWithLegacyBoolsAndOverrides() throws {
+        let json = """
+        {
+          "version": 1,
+          "presetId": "sanne.standard",
+          "paused": false,
+          "magicMouseTaps": {
+            "enabled": true,
+            "leftTap": true,
+            "rightTap": false,
+            "threeFingerSwipes": false
+          },
+          "titlebarGestures": { "enabled": true, "swipeHalves": true },
+          "gestureOverrides": {
+            "trackpad.free.3.tap": { "actionId": "window.close" }
+          },
+          "appGestureOverrides": {
+            "com.apple.Safari": {
+              "trackpad.free.3.tap": { "actionId": "browser.closeTab" }
+            }
+          },
+          "customActions": [
+            {
+              "id": "00000000-0000-0000-0000-000000000099",
+              "name": "Hello",
+              "kind": "shell",
+              "payload": "echo hi"
+            }
+          ],
+          "hud": { "enabled": true },
+          "launchAtLogin": false
+        }
+        """
+        let config = try decoder.decode(SanneConfig.self, from: Data(json.utf8))
+        XCTAssertEqual(config.version, 1)
+        XCTAssertTrue(config.magicMouseTaps.leftTap)
+        XCTAssertFalse(config.magicMouseTaps.rightTap)
+        XCTAssertEqual(
+            config.gestureOverrides[GestureSlots.ID.free3Tap]?.actionId,
+            ActionCatalog.ID.close
+        )
+        XCTAssertEqual(
+            config.appGestureOverrides["com.apple.Safari"]?[GestureSlots.ID.free3Tap]?.actionId,
+            ActionCatalog.ID.browserCloseTab
+        )
+        XCTAssertEqual(config.customActions.count, 1)
+        XCTAssertTrue(config.hud.enabled)
+
+        var migrated = config
+        migrated.migrateToSlotEnablement()
+        XCTAssertEqual(migrated.version, 2)
+        XCTAssertEqual(
+            migrated.gestureOverrides[GestureSlots.ID.mmRight]?.enabled,
+            false,
+            "rightTap was off in 0.2.0 and must stay off after migrate"
+        )
+        XCTAssertEqual(
+            migrated.gestureOverrides[GestureSlots.ID.free3Tap]?.actionId,
+            ActionCatalog.ID.close,
+            "existing remaps survive migrate"
+        )
+        XCTAssertEqual(
+            BindingResolver.resolve(slotId: GestureSlots.ID.mmLeft, config: migrated)?.enabled,
+            true
+        )
+        XCTAssertEqual(migrated.customActions.count, 1)
+        XCTAssertTrue(migrated.hud.enabled)
+    }
+
+    func testBundledStandardSlotDefaultsMatchCode() throws {
+        for slot in GestureSlots.all {
+            XCTAssertEqual(
+                GestureSlots.legacyEnabled(slot.legacyGate, config: .default),
+                GestureSlots.defaultEnabled(for: slot.legacyGate),
+                "\(slot.id) defaultEnabled drifted from Sanne Standard"
+            )
+        }
+    }
+
     func testEmptyJSONYieldsDefaults() throws {
         let config = try decoder.decode(SanneConfig.self, from: Data("{}".utf8))
 
@@ -142,6 +221,65 @@ final class ConfigRoundTripTests: XCTestCase {
         )
         // App entry stored only the action id, so pruning drops the whole app map.
         XCTAssertNil(config.appGestureOverrides["com.apple.Safari"])
+    }
+
+    func testPartialDockJSONKeepsOtherDockFlags() throws {
+        let json = """
+        { "dockGestures": { "enabled": false } }
+        """
+        let config = try decoder.decode(SanneConfig.self, from: Data(json.utf8))
+        XCTAssertFalse(config.dockGestures.enabled)
+        XCTAssertTrue(config.dockGestures.swipeActivate)
+        XCTAssertTrue(config.dockGestures.swipeHide)
+        XCTAssertTrue(config.dockGestures.pinchNewWindow)
+        XCTAssertFalse(config.dockGestures.pinchQuit)
+    }
+
+    func testPartialMenubarJSONKeepsOtherMenubarFlags() throws {
+        let json = """
+        { "menubarGestures": { "swipeHideOthers": false } }
+        """
+        let config = try decoder.decode(SanneConfig.self, from: Data(json.utf8))
+        XCTAssertTrue(config.menubarGestures.enabled)
+        XCTAssertTrue(config.menubarGestures.swipeCycleWindows)
+        XCTAssertFalse(config.menubarGestures.swipeHideOthers)
+        XCTAssertTrue(config.menubarGestures.swipeUnminimize)
+    }
+
+    func testAppOverrideDecodesLegacyDisabledKeyAsIsActive() throws {
+        let json = """
+        { "bundleId": "com.apple.Safari", "displayName": "Safari", "disabled": true }
+        """
+        let override = try decoder.decode(AppOverride.self, from: Data(json.utf8))
+        XCTAssertTrue(override.isActive)
+
+        let off = """
+        { "bundleId": "com.apple.Safari", "disabled": false }
+        """
+        let inactive = try decoder.decode(AppOverride.self, from: Data(off.utf8))
+        XCTAssertFalse(inactive.isActive)
+    }
+
+    func testAppOverrideEncodesIsActiveNotDisabled() throws {
+        let override = AppOverride(bundleId: "com.apple.Safari", displayName: "Safari", isActive: true)
+        let data = try encoder.encode(override)
+        let object = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        XCTAssertEqual(object["isActive"] as? Bool, true)
+        XCTAssertNil(object["disabled"])
+    }
+
+    func testCorruptConfigBackupPreservesOriginalBytes() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sanne-config-test-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let file = dir.appendingPathComponent("config.json")
+        let original = Data("{ not json".utf8)
+        let bak = try ConfigFileRecovery.writeBackup(data: original, fileURL: file)
+        XCTAssertEqual(bak, file.appendingPathExtension("bak"))
+        XCTAssertEqual(try Data(contentsOf: bak), original)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: file.path))
     }
 
     func testGestureOverrideEntryLayering() {

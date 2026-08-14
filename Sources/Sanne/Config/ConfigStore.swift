@@ -11,6 +11,9 @@ final class ConfigStore: ObservableObject {
         didSet { ActionCatalog.syncCustomActions(config.customActions) }
     }
 
+    /// Option held at launch: Standard is in memory, the on-disk file was not touched.
+    @Published private(set) var safeMode = false
+
     private let fileURL: URL
     private let encoder: JSONEncoder = {
         let e = JSONEncoder()
@@ -28,14 +31,55 @@ final class ConfigStore: ObservableObject {
     }
 
     func load() {
-        if let data = try? Data(contentsOf: fileURL),
-           let decoded = try? decoder.decode(SanneConfig.self, from: data)
-        {
-            config = decoded
-            Log.info(.config, "Loaded config from \(self.fileURL.path)")
+        if SafeMode.isActive {
+            safeMode = true
+            if let bundled = BundledPreset.loadStandard() {
+                var decoded = bundled
+                if decoded.version < 2 { decoded.migrateToSlotEnablement() }
+                config = decoded
+            } else {
+                var fallback = SanneConfig.default
+                fallback.migrateToSlotEnablement()
+                config = fallback
+            }
+            config.paused = false
+            WelcomePrefs.adoptExistingInstall()
+            Log.warn(.config, "Safe mode — Option held at launch; user config not loaded")
             return
         }
-        if let bundled = loadBundledStandard() {
+
+        let existed = FileManager.default.fileExists(atPath: fileURL.path)
+        if existed, let data = try? Data(contentsOf: fileURL) {
+            do {
+                var decoded = try decoder.decode(SanneConfig.self, from: data)
+                if decoded.version < 2 {
+                    decoded.migrateToSlotEnablement()
+                    WelcomePrefs.adoptExistingInstall()
+                    config = decoded
+                    save()
+                    Log.info(.config, "Migrated config to v2 (slot enablement) at \(self.fileURL.path)")
+                    return
+                }
+                WelcomePrefs.adoptExistingInstall()
+                config = decoded
+                Log.info(.config, "Loaded config from \(self.fileURL.path)")
+                return
+            } catch {
+                do {
+                    let bak = try ConfigFileRecovery.writeBackup(data: data, fileURL: fileURL)
+                    Log.error(
+                        .config,
+                        "Config decode failed (\(error.localizedDescription)); original bytes saved to \(bak.path)"
+                    )
+                } catch {
+                    Log.error(.config, "Config decode failed and backup write failed: \(error.localizedDescription)")
+                }
+                WelcomePrefs.adoptExistingInstall()
+            }
+        } else {
+            WelcomePrefs.markFreshInstall()
+        }
+        if let bundled = BundledPreset.loadStandard() {
             config = bundled
             Log.info(.config, "Loaded bundled Sanne Standard preset")
         } else {
@@ -46,6 +90,10 @@ final class ConfigStore: ObservableObject {
     }
 
     func save() {
+        if safeMode {
+            Log.debug(.config, "Safe mode — skip writing config.json")
+            return
+        }
         do {
             let data = try encoder.encode(config)
             try data.write(to: fileURL, options: .atomic)
@@ -63,7 +111,7 @@ final class ConfigStore: ObservableObject {
     }
 
     func resetToStandard() {
-        if let bundled = loadBundledStandard() {
+        if let bundled = BundledPreset.loadStandard() {
             config = bundled
         } else {
             config = .default
@@ -73,8 +121,17 @@ final class ConfigStore: ObservableObject {
         // Per-app bindings are remaps too, so "Reset to Standard" has to clear them as well —
         // otherwise a gesture keeps behaving differently in one app with no visible reason why.
         config.appGestureOverrides = [:]
+        config.presetId = SannePreset.standardId
+        config.migrateToSlotEnablement()
         save()
         NotificationCenter.default.post(name: .sanneConfigDidChange, object: nil)
+    }
+
+    func applyPreset(_ preset: SannePreset, keepActionRemaps: Bool) {
+        update { cfg in
+            preset.apply(to: &cfg, keepActionRemaps: keepActionRemaps)
+        }
+        Log.info(.config, "Applied preset \(preset.id)")
     }
 
     /// Pretty-printed JSON of the current config (for export / backup).
@@ -107,21 +164,19 @@ final class ConfigStore: ObservableObject {
         try importData(data)
     }
 
-    private func loadBundledStandard() -> SanneConfig? {
-        #if SWIFT_PACKAGE
-        let bundleURLs = [
-            Bundle.module.url(forResource: "sanne.standard", withExtension: "json", subdirectory: "Presets"),
-            Bundle.module.url(forResource: "sanne.standard", withExtension: "json"),
-        ]
-        for url in bundleURLs.compactMap({ $0 }) {
-            if let data = try? Data(contentsOf: url),
-               let decoded = try? decoder.decode(SanneConfig.self, from: data)
-            {
-                return decoded
-            }
-        }
-        #endif
-        return nil
+}
+
+enum ConfigFileRecovery {
+    static func backupURL(for fileURL: URL) -> URL {
+        fileURL.appendingPathExtension("bak")
+    }
+
+    /// Copy the original bytes to `config.json.bak` before Standard overwrites the live file.
+    @discardableResult
+    static func writeBackup(data: Data, fileURL: URL) throws -> URL {
+        let bak = backupURL(for: fileURL)
+        try data.write(to: bak, options: .atomic)
+        return bak
     }
 }
 

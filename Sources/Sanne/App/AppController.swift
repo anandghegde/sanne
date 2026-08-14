@@ -13,9 +13,24 @@ final class AppController: ObservableObject {
     @Published var conflicts: [String] = []
     @Published var showOnboarding = false
     @Published var showPreferences = false
+    @Published var connectedPointers: [IOKitHints.Pointer] = []
+
+    var hasMagicMouse: Bool { connectedPointers.contains(where: \.isMouse) }
+    var hasTrackpad: Bool { connectedPointers.contains(where: \.isTrackpad) }
+
+    var connectedDeviceLine: String {
+        if connectedPointers.isEmpty {
+            return "No Apple trackpad or Magic Mouse connected."
+        }
+        let names = connectedPointers.map(\.product).joined(separator: " · ")
+        if hasMagicMouse { return names }
+        return "\(names) · No Magic Mouse connected."
+    }
 
     private var sleepObservers: [NSObjectProtocol] = []
+    private var appObservers: [NSObjectProtocol] = []
     private var pollTimer: Timer?
+    private var wakeTask: Task<Void, Never>?
 
     private init() {}
 
@@ -30,16 +45,26 @@ final class AppController: ObservableObject {
         refreshConflicts()
         Log.info(.ax, "Accessibility trusted=\(accessibilityTrusted)")
 
-        if !accessibilityTrusted {
+        if WelcomePrefs.shouldShowOnboarding(hasCompletedWelcome: WelcomePrefs.hasCompletedWelcome) {
             showOnboarding = true
-            Log.warn(.ax, "Accessibility NOT granted — open Settings and enable Sanne")
+            if !accessibilityTrusted {
+                Log.warn(.ax, "Accessibility NOT granted — open Settings and enable Sanne")
+            } else {
+                Log.info(.app, "First run — showing welcome (Accessibility already granted)")
+            }
         }
 
         wireGestures()
         wireKeyboard()
         wireModifierDrag()
+        if configStore.config.paused {
+            configStore.update { $0.paused = false }
+        }
+
+        refreshDevices()
         startMultitouch()
         observeSleepWake()
+        observeDisplayChanges()
         observeConfig()
         LaunchAtLogin.apply(desired: configStore.config.launchAtLogin)
 
@@ -47,6 +72,7 @@ final class AppController: ObservableObject {
             Task { @MainActor in
                 self?.refreshPermissions()
                 self?.refreshConflicts()
+                self?.refreshDevices()
             }
         }
 
@@ -59,10 +85,16 @@ final class AppController: ObservableObject {
         KeyboardSnapMonitor.shared.stop()
         ModifierDragController.shared.stop()
         TouchDeviceManager.shared.stop()
+        wakeTask?.cancel()
+        wakeTask = nil
         for o in sleepObservers {
             NSWorkspace.shared.notificationCenter.removeObserver(o)
         }
         sleepObservers.removeAll()
+        for o in appObservers {
+            NotificationCenter.default.removeObserver(o)
+        }
+        appObservers.removeAll()
         pollTimer?.invalidate()
     }
 
@@ -71,7 +103,7 @@ final class AppController: ObservableObject {
         if trusted != accessibilityTrusted {
             accessibilityTrusted = trusted
             if trusted {
-                showOnboarding = false
+                // Keep the welcome window open so Start Tutorial is reachable.
                 startMultitouch()
             }
         }
@@ -84,6 +116,15 @@ final class AppController: ObservableObject {
 
     func refreshConflicts() {
         conflicts = CompetingApps.runningConflicts()
+    }
+
+    func refreshDevices() {
+        let next = IOKitHints.applePointers()
+        if next != connectedPointers {
+            connectedPointers = next
+            let names = next.map(\.product).joined(separator: ", ")
+            Log.info(.touch, "devices: \(names.isEmpty ? "none" : names)")
+        }
     }
 
     func togglePaused() {
@@ -156,54 +197,115 @@ final class AppController: ObservableObject {
         // Trackpad path (titlebar gestures). Magic Mouse taps start inside GestureEngine.
         switch TouchDeviceManager.shared.start() {
         case .success(let n):
-            multitouchRunning = true
-            multitouchError = nil
-            Log.info(.app, "Trackpad multitouch OK devices=\(n)")
+            applyTrackpadBindResult(count: n, context: "start")
         case .failure(let err):
-            // Mouse-only machines may have 0 trackpad devices — still OK if mouse taps work
-            multitouchRunning = true
-            multitouchError = nil
-            Log.warn(.app, "Trackpad path: \(err.localizedDescription) (Magic Mouse taps may still work)")
+            applyTrackpadBindFailure(err.localizedDescription, context: "start")
         }
         Log.info(.app, "stats: \(TouchDeviceManager.shared.stats)")
     }
 
+    private func applyTrackpadBindResult(count: Int, context: String) {
+        refreshDevices()
+        if count > 0 {
+            multitouchRunning = true
+            multitouchError = nil
+            Log.info(.app, "Trackpad multitouch OK devices=\(count) (\(context))")
+        } else if hasTrackpad {
+            multitouchRunning = false
+            multitouchError = "Trackpad present but not bound"
+            Log.warn(.app, "Trackpad visible via IOKit but MultitouchSupport bound 0 devices (\(context))")
+        } else {
+            // Mouse-only Mac: not a trackpad success.
+            multitouchRunning = false
+            multitouchError = nil
+            Log.info(.app, "No trackpad devices (\(context)); Magic Mouse taps may still work")
+        }
+    }
+
+    private func applyTrackpadBindFailure(_ message: String, context: String) {
+        refreshDevices()
+        multitouchRunning = false
+        multitouchError = message
+        Log.warn(.app, "Trackpad path failed (\(context)): \(message)")
+    }
+
     private func observeSleepWake() {
         let nc = NSWorkspace.shared.notificationCenter
+        let stopForSleep: (String) -> Void = { reason in
+            TouchDeviceManager.shared.stop()
+            MagicMouseTapController.shared.stop()
+            Log.info(.touch, "Stopped multitouch (trackpad + Magic Mouse) for \(reason)")
+        }
         sleepObservers.append(
             nc.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { _ in
-                TouchDeviceManager.shared.stop()
-                MagicMouseTapController.shared.stop()
-                Log.info(.touch, "Stopped multitouch (trackpad + Magic Mouse) for sleep")
+                stopForSleep("sleep")
+            }
+        )
+        sleepObservers.append(
+            nc.addObserver(forName: NSWorkspace.screensDidSleepNotification, object: nil, queue: .main) { _ in
+                stopForSleep("screens sleep")
             }
         )
         sleepObservers.append(
             nc.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { _ in
+                Task { @MainActor in AppController.shared.rebindAfterWake(reason: "wake") }
+            }
+        )
+        sleepObservers.append(
+            nc.addObserver(forName: NSWorkspace.screensDidWakeNotification, object: nil, queue: .main) { _ in
+                Task { @MainActor in AppController.shared.rebindAfterWake(reason: "screens wake") }
+            }
+        )
+    }
+
+    private func observeDisplayChanges() {
+        appObservers.append(
+            NotificationCenter.default.addObserver(
+                forName: NSApplication.didChangeScreenParametersNotification,
+                object: nil,
+                queue: .main
+            ) { _ in
                 Task { @MainActor in
-                    // Short debounce so the stack settles after wake.
-                    try? await Task.sleep(nanoseconds: 180_000_000)
-                    let result = await Task.detached {
-                        TouchDeviceManager.shared.restart()
-                    }.value
-                    // Magic Mouse must rebind too (separate device registration).
-                    await Task.detached {
-                        MagicMouseTapController.shared.restart()
-                    }.value
-                    switch result {
-                    case .success:
-                        AppController.shared.multitouchRunning = true
-                        AppController.shared.multitouchError = nil
-                        Log.info(.touch, "Multitouch rebound after wake: \(TouchDeviceManager.shared.stats)")
-                    case .failure(let err):
-                        // Trackpad may be absent; Magic Mouse restart still ran.
-                        AppController.shared.multitouchRunning = true
-                        AppController.shared.multitouchError = nil
-                        Log.warn(.touch, "Trackpad rebind: \(err.localizedDescription); Magic Mouse restarted")
-                    }
-                    AppController.shared.refreshPermissions()
+                    Log.info(.window, "Display configuration changed — screens re-resolved live")
+                    AppController.shared.refreshDevices()
                 }
             }
         )
+    }
+
+    private func rebindAfterWake(reason: String) {
+        wakeTask?.cancel()
+        wakeTask = Task { @MainActor in
+            var lastError: String?
+            for (i, delay) in WakeRebind.attemptDelaysNanoseconds.enumerated() {
+                try? await Task.sleep(nanoseconds: delay)
+                if Task.isCancelled { return }
+                let result = await Task.detached {
+                    TouchDeviceManager.shared.restart()
+                }.value
+                await Task.detached {
+                    MagicMouseTapController.shared.restart()
+                }.value
+                switch result {
+                case .success(let n):
+                    applyTrackpadBindResult(count: n, context: "\(reason) attempt \(i + 1)")
+                    let mouseCount = MagicMouseTapController.shared.monitoredDeviceCount
+                    if n > 0 || mouseCount > 0 || (!hasTrackpad && !hasMagicMouse) {
+                        Log.info(.touch, "Rebound after \(reason) attempt \(i + 1): \(TouchDeviceManager.shared.stats)")
+                        refreshPermissions()
+                        return
+                    }
+                    lastError = "No multitouch devices yet"
+                case .failure(let err):
+                    lastError = err.localizedDescription
+                    applyTrackpadBindFailure(err.localizedDescription, context: "\(reason) attempt \(i + 1)")
+                }
+            }
+            if let lastError {
+                applyTrackpadBindFailure(lastError, context: "\(reason) exhausted")
+            }
+            refreshPermissions()
+        }
     }
 
     private func observeConfig() {
@@ -212,7 +314,9 @@ final class AppController: ObservableObject {
             object: nil,
             queue: .main
         ) { _ in
-            // Engine reads config live; launch-at-login is applied from the Settings toggle.
+            Task { @MainActor in
+                LaunchAtLogin.apply(desired: ConfigStore.shared.config.launchAtLogin)
+            }
         }
     }
 

@@ -3,21 +3,25 @@ import Foundation
 
 /// Synthetic keystrokes via CGEvent (Accessibility-trusted process).
 enum KeyEmitter {
+    private static let queue = DispatchQueue(label: "app.sanne.key", qos: .userInteractive)
+
     static func post(keyCode: CGKeyCode, flags: CGEventFlags = [], tap: CGEventTapLocation = .cghidEventTap) {
         let source = CGEventSource(stateID: .combinedSessionState)
         guard
             let down = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true),
             let up = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false)
         else {
-            Log.error(.click, "KeyEmitter failed keyCode=\(keyCode)")
+            Log.error(.key, "KeyEmitter failed keyCode=\(keyCode)")
             return
         }
         down.flags = flags
         up.flags = flags
-        down.post(tap: tap)
-        usleep(8_000)
-        up.post(tap: tap)
-        Log.info(.click, "key keyCode=\(keyCode) flags=\(flags.rawValue)")
+        queue.async {
+            down.post(tap: tap)
+            usleep(8_000)
+            up.post(tap: tap)
+            Log.info(.key, "key keyCode=\(keyCode) flags=\(flags.rawValue)")
+        }
     }
 
     // Common virtual key codes (US layout; fine for system shortcuts).
@@ -64,37 +68,37 @@ enum KeyEmitter {
     /// Mission Control (⌃↑) — default system shortcut.
     static func missionControl() {
         post(keyCode: Arrow.up, flags: .maskControl)
-        Log.info(.click, "→ Mission Control")
+        Log.info(.key, "→ Mission Control")
     }
 
     /// Application windows / App Exposé (⌃↓).
     static func appExpose() {
         post(keyCode: Arrow.down, flags: .maskControl)
-        Log.info(.click, "→ App Exposé")
+        Log.info(.key, "→ App Exposé")
     }
 
     /// Move left a Space (⌃←).
     static func spaceLeft() {
         post(keyCode: Arrow.left, flags: .maskControl)
-        Log.info(.click, "→ Space left")
+        Log.info(.key, "→ Space left")
     }
 
     /// Move right a Space (⌃→).
     static func spaceRight() {
         post(keyCode: Arrow.right, flags: .maskControl)
-        Log.info(.click, "→ Space right")
+        Log.info(.key, "→ Space right")
     }
 
     /// Browser / history back via mouse button 3 (same as a mouse “Back” button).
     /// More reliable in Chrome/Safari than ⌘[ alone. Remap the gesture to ⌘[ if needed.
     static func browserBack() {
         ClickEmitter.browserNavigate(back: true)
-        Log.info(.click, "→ browser back")
+        Log.info(.key, "→ browser back")
     }
 
     /// Browser / history forward via mouse button 4.
     static func browserForward() {
         ClickEmitter.browserNavigate(back: false)
-        Log.info(.click, "→ browser forward")
+        Log.info(.key, "→ browser forward")
     }
 }

@@ -9,14 +9,53 @@ Versioning follows [SemVer](https://semver.org/) once public releases begin.
 
 ### Added
 
+- **Continuous thirds** — a longer titlebar swipe left/right walks half → third → two-thirds; preview updates as you go. Same policy as keyboard ←/→
+- **Window-to-Space** — experimental toggle on Advanced; remap any gesture to Move to Space left/right. HUD on failure
+- **Magic Mouse 3-finger top-edge resize** — pair to 2-finger move
+- **Gaming mode** — hold physical right-click, tap left to left-click. Off by default
+- **Safe mode** — hold Option at launch to load Sanne Standard without touching `config.json`
+- **Check for Updates…** — GitHub Releases compare from the menu bar and Settings → Advanced
+- **Homebrew cask sketch** at `docs/homebrew/sanne.rb`
+- Phase 5 tests: 0.2.0 migrate matrix, BindingResolver emit matrix, bundled Standard == slot defaults
+- **First-run welcome** that stays open after Accessibility is granted, with Start Tutorial / Skip / Quit
+- **One-shot Home tutorial banner** after Skip welcome
+- **Menu bar** quick toggles, Option-click Debug, Accessibility badge, accessory restore on window close
+- **Connected-device status** on Home; Magic Mouse empty state; wake rebind retries 3×
+- **Settings IA** — 8 sidebar pages (Home, Magic Mouse, Trackpad, Windows, Keyboard, Apps, Presets, Advanced)
+- **Simple-by-default** gesture lists with “Show all gestures”
+- **Cheat sheet** driven by `GestureSlots` + live remaps
+- **Apps page** rewrite (running-app picker, pause scope, remap count)
+- **Device-branched tutorial** and one-click remap popover
+- **Config honesty** — pause not persisted; corrupt JSON backed up to `.bak`; `AppOverride.isActive`
+- **Slot enablement v2 migrate** — recognition reads `BindingResolver`; 0.2.0 configs keep behaviour
 - **App icon** — 2D three-finger swipe mark (cream fingertips + motion dashes on clay)
+- **`window.restore`** catalog action; second same-layout swipe preview shows the restore frame
+- **Minimal preset** — taps + halves only; first real use of `presetId`
+- **Settings search** — page titles, toggles, and slot names; “launch at login”, “haptics”, “gap”, “HUD” resolve
+- **Live gesture highlight** — a fired gesture while Settings is open scrolls to its row
+- **Conflict coach** — verified Multitouch / TapToClick bundle IDs; Pause Sanne / Dismiss
+- **Trackpad empty state** when no pad is connected
+
+### Changed
+
+- Settings pages live one-file-per-tab under `UI/Preferences/Pages/`; action picker and keystroke recorder are separate files
+- Magic Mouse recognition uses extracted `MMThresholds` / `ScrollLock` / `PhysicalClickGuard`; center dead zone rejects instead of becoming a left click
+- Window identity is `pid + CGWindowNumber`; one `WindowMover` for modifier-drag move and Magic Mouse top-edge
+- Keyboard snap is a slot family (⌃⌥ arrows / ↩ / ⌃⌥⌘ display). ↓ restores. A `CGEvent` tap consumes the chord
+- Action HUD names Restore, shows “No window” on a failed snap, and says “Running {name}…” for scripts and launch-app
+- Scripts run through `zsh -c` (no login profile). Click/key `usleep` is off the main actor
+- ActionRunner snap cases go through `ActionCatalog.snapLayout`
+- 3-finger tap uses the travel-aware drag recognizer (a wiggle is no longer a middle-click)
+- `setFrame` returns false when AX set fails
+- Keyboard ↓ is restore, not almost-maximize (almost-maximize stays remappable)
+- Gesture diagrams expose a spoken label; HUD and tutorial skip fades when Reduce Motion is on
+- Conflict detection no longer treats an app named “Middle” as a gesture app
 
 ### Planned
 
 - Notarized GitHub Releases workflow (credentials + CI)
-- Menu bar template images
-- Homebrew cask
-- Optional Sparkle auto-update
+- Hardware QA (IMPROVEMENT_PLAN §5.2) and compatibility matrix (§5.3)
+- Submit the Homebrew cask once a public DMG URL exists
 
 ---
 

@@ -156,6 +156,21 @@ extension SanneConfig {
     ///
     /// Lives on the config rather than in the editor because it is pure config mutation — a
     /// 40-case switch over stored properties has no business in a SwiftUI view.
+    /// Snapshot of which slots BindingResolver currently enables for `frontmostBundleId`.
+    func enabledSlotIds(frontmostBundleId: String? = nil) -> Set<String> {
+        var ids = Set<String>()
+        for slot in GestureSlots.all {
+            if BindingResolver.resolve(
+                slotId: slot.id,
+                config: self,
+                frontmostBundleId: frontmostBundleId
+            )?.enabled == true {
+                ids.insert(slot.id)
+            }
+        }
+        return ids
+    }
+
     mutating func enableLegacyGate(slotId: String) {
         guard let slot = GestureSlots.slot(id: slotId) else { return }
         switch slot.legacyGate {
@@ -169,6 +184,7 @@ extension SanneConfig {
         case .mmTwoFingerSwipeDown: magicMouseTaps.twoFingerSwipeDownAppExpose = true
         case .mmTwoFingerSpaces: magicMouseTaps.twoFingerSwipeSpaces = true
         case .mmTwoFingerTopEdgeMove: magicMouseTaps.twoFingerTopEdgeMove = true
+        case .mmThreeFingerTopEdgeResize: break
         case .mmOneFingerSwipePages: magicMouseTaps.oneFingerSwipePages = true
         case .tbHalves: titlebarGestures.swipeHalves = true
         case .tbThirds: titlebarGestures.swipeThirds = true
@@ -191,6 +207,8 @@ extension SanneConfig {
         case .trackpadFreeFourSwipe: trackpad.fourFingerSwipes = true
         case .trackpadFreeFourTap: trackpad.fourFingerTap = true
         case .trackpadTipTap: trackpad.tipTap = true
+        case .keyboardSnap: keyboard.snapWithArrows = true
+        case .keyboardDisplay: keyboard.moveToAdjacentDisplay = true
         case .mmThreeFingerSwipes: magicMouseTaps.threeFingerSwipes = true
         case .magicMouseMaster: magicMouseTaps.enabled = true
         case .titlebarMaster: titlebarGestures.enabled = true
@@ -204,6 +222,7 @@ extension SanneConfig {
         case .dock: dockGestures.enabled = true
         case .menubar: menubarGestures.enabled = true
         case .trackpad: break
+        case .keyboard: keyboard.enabled = true
         }
     }
 }

@@ -132,16 +132,24 @@ enum PrivateMT {
     /// Force Touch trackpads return true; Magic Mouse returns false.
     static func deviceSupportsForce(_ d: DeviceRef) -> Bool { supportsForceFn?(d) ?? false }
 
+    static func classify(_ d: DeviceRef) -> DeviceKind {
+        TouchDeviceClassifier.classify(
+            .init(
+                isBuiltIn: deviceIsBuiltIn(d),
+                isOpaque: deviceIsOpaqueSurface(d),
+                supportsForce: deviceSupportsForce(d)
+            )
+        )
+    }
+
+    /// Built-in trackpad or external Magic Trackpad — never a Magic Mouse.
+    static func isTrackpadDevice(_ d: DeviceRef) -> Bool {
+        TouchDeviceClassifier.isTrackpad(classify(d))
+    }
+
     /// Magic Mouse only — never built-in / Force Touch trackpads (would fake tap-to-click).
-    /// Opaque surface is the classic signal; some Magic Mice (e.g. MM2) report opaque=false,
-    /// so fall back to external + !ForceTouch (excludes Magic Trackpad 2+).
     static func isMagicMouseDevice(_ d: DeviceRef) -> Bool {
-        if deviceIsBuiltIn(d) { return false }
-        if deviceIsOpaqueSurface(d) { return true }
-        if deviceSupportsForce(d) { return false }
-        // External, non-opaque, no Force Touch → Magic Mouse on this machine
-        // (device list logs: builtIn=false opaque=false force=false).
-        return true
+        TouchDeviceClassifier.isMagicMouse(classify(d))
     }
 
     /// MT contact-state machine: 1 StartInRange, 2 HoverInRange, 3 MakeTouch,

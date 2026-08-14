@@ -82,6 +82,7 @@ struct GestureDiagram: Hashable {
 
     static func from(slotId: String) -> GestureDiagram {
         let parts = slotId.split(separator: ".").map(String.init)
+        if parts.first == "keyboard" { return .keyboard }
         let device: Device = parts.first == "mouse" ? .magicMouse : .trackpad
         let zoneName = parts.count > 1 ? parts[1] : ""
         let zone: Zone
@@ -134,8 +135,57 @@ struct GestureDiagramView: View {
     let diagram: GestureDiagram
     var size: CGFloat = 40
     var active: Bool = true
+    /// Spoken after the device name, e.g. slot title `"tap left"` → "Magic Mouse, tap left."
+    var label: String? = nil
 
     private var accent: Color { active ? Color.accentColor : Color.secondary }
+
+    private var accessibilityName: String {
+        let device: String
+        switch diagram.device {
+        case .magicMouse: device = "Magic Mouse"
+        case .trackpad: device = "Trackpad"
+        case .keyboard: device = "Keyboard"
+        }
+        let motion = label?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let motion, !motion.isEmpty {
+            return "\(device), \(motion.lowercased())."
+        }
+        return "\(device), \(motionPhrase)."
+    }
+
+    private var motionPhrase: String {
+        switch diagram.motion {
+        case .tap:
+            switch diagram.side {
+            case .left: return "tap left"
+            case .right: return "tap right"
+            case .center: return "tap"
+            }
+        case .touch: return diagram.fingers == 1 ? "touch" : "\(diagram.fingers)-finger touch"
+        case .doubleTap: return "double tap"
+        case .tripleTap: return "triple tap"
+        case .tapHoldDrag: return "double-tap hold"
+        case .swipe(let dir):
+            switch dir {
+            case .up: return "swipe up"
+            case .down: return "swipe down"
+            case .left: return "swipe left"
+            case .right: return "swipe right"
+            case .upLeft: return "swipe up left"
+            case .upRight: return "swipe up right"
+            case .downLeft: return "swipe down left"
+            case .downRight: return "swipe down right"
+            case .leftRight: return "swipe left or right"
+            }
+        case .pinchIn: return "pinch in"
+        case .pinchOut: return "pinch out"
+        case .drag: return "drag"
+        case .keys: return "keys"
+        case .tipTap(let side):
+            return side == .left ? "tip-tap left" : "tip-tap right"
+        }
+    }
 
     var body: some View {
         ZStack {
@@ -149,7 +199,9 @@ struct GestureDiagramView: View {
             .padding(size * 0.14)
         }
         .frame(width: size, height: size)
-        .accessibilityHidden(true)
+        .accessibilityElement()
+        .accessibilityLabel(accessibilityName)
+        .accessibilityAddTraits(.isImage)
     }
 
     // MARK: Drawing
@@ -473,7 +525,7 @@ struct GestureToggleRow: View {
     var body: some View {
         Toggle(isOn: $isOn) {
             HStack(spacing: 12) {
-                GestureDiagramView(diagram: diagram, size: 38, active: isOn)
+                GestureDiagramView(diagram: diagram, size: 38, active: isOn, label: title)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
                     if let subtitle, !subtitle.isEmpty {
@@ -487,5 +539,6 @@ struct GestureToggleRow: View {
         }
         .toggleStyle(.switch)
         .controlSize(.small)
+        .accessibilityLabel("Enable \(title)")
     }
 }
