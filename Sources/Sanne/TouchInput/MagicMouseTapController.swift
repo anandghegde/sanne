@@ -83,8 +83,11 @@ final class MagicMouseTapController: @unchecked Sendable {
     }
 
     var stats: String {
-        lock.lock(); defer { lock.unlock() }
-        return "mmStarted=\(started) mmDevices=\(TouchDeviceManager.shared.magicMouseDeviceCount) mmCallbacks=\(callbackCount)"
+        lock.lock()
+        let started = self.started
+        let callbacks = callbackCount
+        lock.unlock()
+        return "mmStarted=\(started) mmDevices=\(TouchDeviceManager.shared.magicMouseDeviceCount) mmCallbacks=\(callbacks)"
     }
 
     func handleRaw(

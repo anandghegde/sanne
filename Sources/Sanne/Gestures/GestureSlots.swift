@@ -59,9 +59,9 @@ enum GestureSlots {
     }
 
     enum Visibility: String, Hashable {
-        /// On by default; shown on the device page without expanding.
+        /// Everyday slots (on by default).
         case simple
-        /// Off by default or power; hidden until “Show all gestures”.
+        /// Off by default or power-user slots. Device pages list these with the rest.
         case advanced
     }
 

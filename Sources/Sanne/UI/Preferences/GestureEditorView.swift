@@ -35,7 +35,6 @@ struct GestureEditorView<Header: View>: View {
     @State private var query = ""
     @State private var groupFilter: GestureSlots.Group?
     @State private var showModifiedOnly = false
-    @State private var showAllGestures = false
     @State private var pickingSlotId: String?
     @State private var popoverSlotId: String?
     @State private var highlightedSlotId: String?
@@ -251,24 +250,6 @@ struct GestureEditorView<Header: View>: View {
             }
             .padding(.horizontal, 14)
 
-            if fixedGroup != nil, hiddenAdvancedCount > 0 || showAllGestures {
-                Button {
-                    showAllGestures.toggle()
-                } label: {
-                    Label(
-                        showAllGestures
-                            ? "Show fewer gestures"
-                            : "Show all gestures (\(hiddenAdvancedCount))",
-                        systemImage: showAllGestures ? "chevron.up" : "chevron.down"
-                    )
-                    .font(.caption.weight(.medium))
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(Color.accentColor)
-                .padding(.horizontal, 14)
-                .padding(.top, 2)
-            }
-
             Color.clear.frame(height: 10)
         }
         .background(Color(nsColor: .windowBackgroundColor).opacity(0.92))
@@ -388,7 +369,6 @@ struct GestureEditorView<Header: View>: View {
     private func revealAndHighlight(_ slotId: String?, proxy: ScrollViewProxy) {
         guard let slotId, let slot = GestureSlots.slot(id: slotId) else { return }
         if !displayedGroups.isEmpty, !displayedGroups.contains(slot.group) { return }
-        if slot.visibility == .advanced { showAllGestures = true }
         query = ""
         showModifiedOnly = false
         DispatchQueue.main.async {
@@ -400,18 +380,9 @@ struct GestureEditorView<Header: View>: View {
         }
     }
 
-    private var hiddenAdvancedCount: Int {
-        GestureSlots.all.filter { slot in
-            displayedGroups.contains(slot.group) && slot.visibility == .advanced
-        }.count
-    }
-
     private var filteredSlots: [GestureSlots.Slot] {
         GestureSlots.all.filter { slot in
             if !displayedGroups.isEmpty, !displayedGroups.contains(slot.group) { return false }
-            if fixedGroup != nil, !showAllGestures, !showModifiedOnly, slot.visibility != .simple {
-                return false
-            }
             if showModifiedOnly {
                 guard isCustomized(slot.id) else { return false }
             } else if fixedGroup == nil, let groupFilter, slot.group != groupFilter {

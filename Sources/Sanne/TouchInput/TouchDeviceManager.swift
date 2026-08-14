@@ -194,8 +194,12 @@ final class TouchDeviceManager: @unchecked Sendable {
     }
 
     var stats: String {
-        lock.lock(); defer { lock.unlock() }
-        return "trackpadDev=\(trackpadDevices.count) mouseDev=\(mouseDevices.count) trackpadCb=\(totalCallbacks) \(MagicMouseTapController.shared.stats)"
+        lock.lock()
+        let local = "trackpadDev=\(trackpadDevices.count) mouseDev=\(mouseDevices.count) trackpadCb=\(totalCallbacks)"
+        lock.unlock()
+        // Do not call into MagicMouseTapController while holding `lock` — its stats
+        // reads `magicMouseDeviceCount`, which takes this same non-recursive lock.
+        return "\(local) \(MagicMouseTapController.shared.stats)"
     }
 
     enum TouchError: LocalizedError {

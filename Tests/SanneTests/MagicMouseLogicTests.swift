@@ -53,6 +53,18 @@ final class MagicMouseLogicTests: XCTestCase {
         XCTAssertFalse(clickGuard.shouldSuppress(now: t0 + 0.09))
     }
 
+    func testStatsDoesNotDeadlockAcrossManagers() {
+        // TDM.stats used to hold TDM.lock while calling MM.stats, which re-took TDM.lock.
+        // start() logs those stats on the main thread, so the app hung on launch.
+        let exp = expectation(description: "stats returned")
+        DispatchQueue.global().async {
+            _ = TouchDeviceManager.shared.stats
+            _ = MagicMouseTapController.shared.stats
+            exp.fulfill()
+        }
+        wait(for: [exp], timeout: 1.0)
+    }
+
     func testSyntheticEchoIgnore() {
         var clickGuard = PhysicalClickGuard()
         let t0: TimeInterval = 1_000
