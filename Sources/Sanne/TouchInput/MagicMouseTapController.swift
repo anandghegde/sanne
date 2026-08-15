@@ -248,17 +248,37 @@ final class MagicMouseTapController: @unchecked Sendable {
             return
         }
 
+        let cursorDist = hypot(cursor.x - session.touchStartCursor.x, cursor.y - session.touchStartCursor.y)
+        let pageSlots = MMSwipeMachine.pageSlotsOn(snap)
+
         if session.pageSwipeActive {
             if session.dragPhase == .pendingHold { session.dragPhase = .none }
+            if cursorDist > thr.cursorMove {
+                Log.debug(.tap, "cancel: cursor during page swipe")
+                applyKill("cursor")
+                return
+            }
+            if !MMSwipeMachine.isHorizontalPageSwipe(dx: session.netDx, dy: session.netDy) {
+                Log.debug(.tap, "cancel: page swipe became vertical")
+                armNoTapUnlocked(for: ScrollLock.surface, reason: "surface-scroll")
+                applyKill("surface")
+                return
+            }
+            return
+        }
+
+        if cursorDist > thr.cursorMove {
+            Log.debug(.tap, "cancel: cursor")
+            applyKill("cursor")
             return
         }
 
         if surfaceMove > thr.surfaceScroll {
-            let adx = abs(session.netDx)
-            let ady = abs(session.netDy)
-            if (snap.slotOn(GestureSlots.ID.mm1fSwipeLeft) || snap.slotOn(GestureSlots.ID.mm1fSwipeRight)),
-               adx > ady * 1.05
-            {
+            if MMSwipeMachine.isPageSwipeCandidate(
+                dx: session.netDx,
+                dy: session.netDy,
+                slotsEnabled: pageSlots
+            ) {
                 session.pageSwipeActive = true
                 if session.dragPhase == .pendingHold { session.dragPhase = .none }
                 Log.debug(.tap, "page swipe track dx=\(String(format: "%.3f", session.netDx))")
@@ -267,13 +287,6 @@ final class MagicMouseTapController: @unchecked Sendable {
             Log.debug(.tap, "cancel: surface scroll")
             armNoTapUnlocked(for: ScrollLock.surface, reason: "surface-scroll")
             applyKill("surface")
-            return
-        }
-
-        let cursorDist = hypot(cursor.x - session.touchStartCursor.x, cursor.y - session.touchStartCursor.y)
-        if cursorDist > thr.cursorMove {
-            Log.debug(.tap, "cancel: cursor")
-            applyKill("cursor")
             return
         }
 
@@ -393,19 +406,34 @@ final class MagicMouseTapController: @unchecked Sendable {
         let wasScroll = session.suppressedForScroll
         let pageSwipe = session.pageSwipeActive
         let swipeDx = session.netDx
+        let swipeDy = session.netDy
+        let swipeStartCursor = session.touchStartCursor
+        let swipePhysicalOwns = physicalGuard.shouldSuppress()
         if pageSwipe {
             let thr = MMThresholds(sensitivity: snap.mmSensitivity)
             let dx = swipeDx
+            let dy = swipeDy
             session.reset(clearSuppress: true)
             session.pageSwipeActive = false
             session.suppressedForScroll = false
             lock.unlock()
-            if (snap.slotOn(GestureSlots.ID.mm1fSwipeLeft) || snap.slotOn(GestureSlots.ID.mm1fSwipeRight)),
-               abs(dx) >= thr.pageSwipeMin
-            {
+            let cursor = CursorLocation.current()
+            let cursorDist = hypot(cursor.x - swipeStartCursor.x, cursor.y - swipeStartCursor.y)
+            if MMSwipeMachine.shouldCommitPageSwipe(
+                dx: dx,
+                dy: dy,
+                cursorDist: cursorDist,
+                physicalOwns: swipePhysicalOwns,
+                slotsEnabled: MMSwipeMachine.pageSlotsOn(snap),
+                thr: thr
+            ) {
                 emitPageSwipe(dx: dx)
             } else {
-                Log.debug(.tap, "page swipe too short dx=\(String(format: "%.3f", dx))")
+                Log.debug(
+                    .tap,
+                    "page swipe rejected dx=\(String(format: "%.3f", dx)) " +
+                    "dy=\(String(format: "%.3f", dy)) cursor=\(String(format: "%.1f", cursorDist))"
+                )
             }
             return
         }

@@ -29,10 +29,14 @@ enum MMTapMachine {
         rightHeld: Bool,
         thr: MMThresholds
     ) -> LiftDecision {
-        if snapshot.slotOn(GestureSlots.ID.mm1fSwipeLeft) || snapshot.slotOn(GestureSlots.ID.mm1fSwipeRight),
-           abs(dx) >= thr.pageSwipeMin,
-           abs(dx) > abs(dy) * 1.05
-        {
+        if MMSwipeMachine.shouldCommitPageSwipe(
+            dx: dx,
+            dy: dy,
+            cursorDist: cursorDist,
+            physicalOwns: physicalOwns,
+            slotsEnabled: MMSwipeMachine.pageSlotsOn(snapshot),
+            thr: thr
+        ) {
             return .pageSwipe(dx: dx)
         }
         if tapBlocked {

@@ -8,7 +8,7 @@ struct MMThresholds: Equatable {
     let maxDuration: TimeInterval
     /// Vertical finger slide on surface → scroll; kill mid-gesture / reject on lift.
     let surfaceScroll: Float
-    /// Horizontal travel for 1-finger back/forward.
+    /// Horizontal travel for 1-finger back/forward. Must beat a rest-drift.
     let pageSwipeMin: Float
     /// Cursor jump while finger down (pointer moved a lot → not a stationary tap).
     let cursorMove: CGFloat
@@ -21,7 +21,7 @@ struct MMThresholds: Equatable {
         minDuration = 0.035 - Double(s) * 0.005
         maxDuration = 0.42 + Double(s) * 0.06
         surfaceScroll = Float(0.070 - Double(s) * 0.010)
-        pageSwipeMin = Float(0.085 - Double(s) * 0.008)
+        pageSwipeMin = Float(0.20 - Double(s) * 0.020)
         cursorMove = CGFloat(18.0 + Double(s) * 4.0)
         swipeMin = Float(0.10 - Double(s) * 0.01)
     }

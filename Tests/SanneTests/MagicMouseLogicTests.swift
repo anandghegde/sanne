@@ -21,7 +21,149 @@ final class MagicMouseLogicTests: XCTestCase {
         XCTAssertGreaterThan(strict.minDuration, loose.minDuration)
         XCTAssertLessThan(strict.maxDuration, loose.maxDuration)
         XCTAssertGreaterThan(strict.surfaceScroll, loose.surfaceScroll)
+        XCTAssertGreaterThan(strict.pageSwipeMin, loose.pageSwipeMin)
         XCTAssertGreaterThan(strict.swipeMin, loose.swipeMin)
+    }
+
+    func testPageSwipeIgnoresFingerDrift() {
+        let thr = MMThresholds(sensitivity: 0)
+        XCTAssertGreaterThan(thr.pageSwipeMin, 0.15)
+        XCTAssertFalse(
+            MMSwipeMachine.shouldCommitPageSwipe(
+                dx: 0.09, dy: 0.01, cursorDist: 0, physicalOwns: false,
+                slotsEnabled: true, thr: thr
+            ),
+            "8–9% surface slide used to fire back/forward"
+        )
+    }
+
+    func testPageSwipeIgnoresDiagonalScroll() {
+        let thr = MMThresholds(sensitivity: 0)
+        XCTAssertTrue(MMSwipeMachine.isHorizontalPageSwipe(dx: 0.28, dy: 0.05))
+        XCTAssertFalse(MMSwipeMachine.isHorizontalPageSwipe(dx: 0.22, dy: 0.20))
+        XCTAssertFalse(
+            MMSwipeMachine.shouldCommitPageSwipe(
+                dx: 0.22, dy: 0.20, cursorDist: 0, physicalOwns: false,
+                slotsEnabled: true, thr: thr
+            )
+        )
+    }
+
+    func testPageSwipeIgnoresCursorMoveAndClick() {
+        let thr = MMThresholds(sensitivity: 0)
+        XCTAssertFalse(
+            MMSwipeMachine.shouldCommitPageSwipe(
+                dx: 0.28, dy: 0.02, cursorDist: 24, physicalOwns: false,
+                slotsEnabled: true, thr: thr
+            )
+        )
+        XCTAssertFalse(
+            MMSwipeMachine.shouldCommitPageSwipe(
+                dx: 0.28, dy: 0.02, cursorDist: 0, physicalOwns: true,
+                slotsEnabled: true, thr: thr
+            )
+        )
+    }
+
+    func testPageSwipeCommitsClearHorizontalSlide() {
+        let thr = MMThresholds(sensitivity: 0)
+        XCTAssertTrue(
+            MMSwipeMachine.shouldCommitPageSwipe(
+                dx: 0.28, dy: 0.04, cursorDist: 3, physicalOwns: false,
+                slotsEnabled: true, thr: thr
+            )
+        )
+        XCTAssertFalse(
+            MMSwipeMachine.shouldCommitPageSwipe(
+                dx: 0.28, dy: 0.04, cursorDist: 3, physicalOwns: false,
+                slotsEnabled: false, thr: thr
+            )
+        )
+    }
+
+    func testDecideLiftDoesNotTreatDriftAsPageSwipe() {
+        let snap = pageSwipeSnapshot()
+        let thr = MMThresholds(sensitivity: 0)
+        let drift = MMTapMachine.decideLift(
+            snapshot: snap,
+            duration: 0.14,
+            surfaceMoved: 0.09,
+            peakVel: 0.4,
+            peakSize: 0.2,
+            cursorDist: 2,
+            startX: 0.30,
+            dx: 0.09,
+            dy: 0.01,
+            tapBlocked: false,
+            physicalOwns: false,
+            rightHeld: false,
+            thr: thr
+        )
+        XCTAssertEqual(drift, .reject("surface"))
+
+        let swipe = MMTapMachine.decideLift(
+            snapshot: snap,
+            duration: 0.16,
+            surfaceMoved: 0.28,
+            peakVel: 0.8,
+            peakSize: 0.2,
+            cursorDist: 2,
+            startX: 0.30,
+            dx: 0.28,
+            dy: 0.03,
+            tapBlocked: false,
+            physicalOwns: false,
+            rightHeld: false,
+            thr: thr
+        )
+        XCTAssertEqual(swipe, .pageSwipe(dx: 0.28))
+    }
+
+    func testDecideLiftPageSwipeLosesToCursorAndClick() {
+        let snap = pageSwipeSnapshot()
+        let thr = MMThresholds(sensitivity: 0)
+        XCTAssertEqual(
+            MMTapMachine.decideLift(
+                snapshot: snap,
+                duration: 0.16,
+                surfaceMoved: 0.28,
+                peakVel: 0.8,
+                peakSize: 0.2,
+                cursorDist: 30,
+                startX: 0.30,
+                dx: 0.28,
+                dy: 0.03,
+                tapBlocked: false,
+                physicalOwns: false,
+                rightHeld: false,
+                thr: thr
+            ),
+            .reject("surface")
+        )
+        XCTAssertEqual(
+            MMTapMachine.decideLift(
+                snapshot: snap,
+                duration: 0.16,
+                surfaceMoved: 0.28,
+                peakVel: 0.8,
+                peakSize: 0.2,
+                cursorDist: 2,
+                startX: 0.30,
+                dx: 0.28,
+                dy: 0.03,
+                tapBlocked: false,
+                physicalOwns: true,
+                rightHeld: false,
+                thr: thr
+            ),
+            .reject("physical click owns contact")
+        )
+    }
+
+    private func pageSwipeSnapshot() -> RuntimeSnapshot {
+        var config = SanneConfig()
+        config.magicMouseTaps.oneFingerSwipePages = true
+        return RuntimeSnapshot.build(config: config, frontmostBundleId: nil)
     }
 
     func testSwipeAxisTiesGoVertical() {
