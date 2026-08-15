@@ -5,37 +5,8 @@ struct AdvancedPage: View {
     @EnvironmentObject private var app: AppController
     @EnvironmentObject private var store: ConfigStore
 
-    enum Pane: String, CaseIterable, Identifiable {
-        case about = "About"
-        case bindings = "All bindings"
-        case debug = "Debug Log"
-        var id: String { rawValue }
-    }
-
-    @Binding var pane: Pane
-
     var body: some View {
-        VStack(spacing: 0) {
-            Picker("Advanced", selection: $pane) {
-                ForEach(Pane.allCases) { item in
-                    Text(item.rawValue).tag(item)
-                }
-            }
-            .pickerStyle(.segmented)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-
-            Group {
-                switch pane {
-                case .about:
-                    PreferencesSupport.detailScroll { advancedAbout }
-                case .bindings:
-                    GestureEditorView()
-                case .debug:
-                    DebugLogView()
-                }
-            }
-        }
+        PreferencesSupport.detailScroll { advancedAbout }
     }
 
     private var advancedAbout: some View {
@@ -57,15 +28,6 @@ struct AdvancedPage: View {
                             .font(.caption)
                             .foregroundStyle(.orange)
                     }
-                    Toggle("Haptic feedback", isOn: Binding(
-                        get: { store.config.window.haptics },
-                        set: { v in store.update { $0.window.haptics = v } }
-                    ))
-                    Toggle("Action name overlay", isOn: Binding(
-                        get: { store.config.hud.enabled },
-                        set: { v in store.update { $0.hud.enabled = v } }
-                    ))
-                    .help("A brief label near the bottom of the screen naming the action a gesture just fired. Clicks and drags stay silent.")
                 } header: {
                     Text("Behavior")
                 }

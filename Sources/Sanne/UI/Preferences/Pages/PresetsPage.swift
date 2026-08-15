@@ -58,10 +58,12 @@ struct PresetsPage: View {
                         }
                     } header: {
                         Text("Backup")
+                    } footer: {
+                        Text("Import keeps your current config as config.json.bak so you can recover it manually.")
                     }
 
                     Section {
-                        Text("Reset restores Sanne Standard defaults. It wipes custom scripts, app remaps, launch-at-login, HUD, and per-gesture overrides.")
+                        Text("Reset restores Sanne Standard defaults. It first saves config.json.bak, then wipes custom scripts, app remaps, launch-at-login, HUD, and per-gesture overrides.")
                             .font(.callout)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -82,7 +84,7 @@ struct PresetsPage: View {
             ) {
                 Button("Reset", role: .destructive) {
                     store.resetToStandard()
-                    importExportMessage = "Reset to Sanne Standard."
+                    importExportMessage = "Reset to Sanne Standard. Previous config saved as config.json.bak."
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {

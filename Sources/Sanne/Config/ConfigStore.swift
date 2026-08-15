@@ -142,6 +142,7 @@ final class ConfigStore: ObservableObject {
     }
 
     func resetToStandard() {
+        preserveCurrentConfig()
         if let bundled = BundledPreset.loadStandard() {
             config = bundled
         } else {
@@ -174,6 +175,7 @@ final class ConfigStore: ObservableObject {
     /// Replace config from imported JSON. Keeps `paused` as currently set unless the file sets it.
     func importData(_ data: Data) throws {
         let decoded = try decoder.decode(SanneConfig.self, from: data)
+        preserveCurrentConfig()
         let wasPaused = config.paused
         config = decoded
         // Don't surprise the user by unpausing/pausing from a shared preset unless explicit.
@@ -194,6 +196,19 @@ final class ConfigStore: ObservableObject {
     func importFromFile(url: URL) throws {
         let data = try Data(contentsOf: url)
         try importData(data)
+    }
+
+    /// Keep one recoverable copy before destructive replacement operations.
+    private func preserveCurrentConfig() {
+        guard !safeMode else { return }
+        do {
+            let data = try encoder.encode(config)
+            let backup = ConfigFileRecovery.backupURL(for: fileURL)
+            try data.write(to: backup, options: .atomic)
+            Log.info(.config, "Backed up current config to \(backup.path)")
+        } catch {
+            Log.warn(.config, "Could not back up current config: \(error.localizedDescription)")
+        }
     }
 
 }

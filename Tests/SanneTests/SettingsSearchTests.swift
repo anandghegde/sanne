@@ -11,6 +11,7 @@ final class SettingsSearchTests: XCTestCase {
     func testHapticsResolves() {
         let hits = SettingsSearch.hits(query: "haptics")
         XCTAssertTrue(hits.contains { $0.title == "Haptic feedback" })
+        XCTAssertEqual(hits.first { $0.title == "Haptic feedback" }?.route, PreferencesRoute.home)
     }
 
     func testGapResolves() {
@@ -22,6 +23,15 @@ final class SettingsSearchTests: XCTestCase {
     func testHUDResolves() {
         let hits = SettingsSearch.hits(query: "HUD")
         XCTAssertTrue(hits.contains { $0.title == "Action name overlay" })
+        XCTAssertEqual(hits.first { $0.title == "Action name overlay" }?.route, PreferencesRoute.home)
+    }
+
+    func testInputMonitoringAndDeadZoneResolve() {
+        let permissionHits = SettingsSearch.hits(query: "input monitoring")
+        XCTAssertEqual(permissionHits.first { $0.title == "Input Monitoring" }?.route, PreferencesRoute.keyboard)
+
+        let tuningHits = SettingsSearch.hits(query: "dead zone")
+        XCTAssertEqual(tuningHits.first { $0.title == "Dead zone" }?.route, PreferencesRoute.magicMouse)
     }
 
     func testSlotTitleResolves() {

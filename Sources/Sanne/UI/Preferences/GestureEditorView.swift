@@ -270,6 +270,7 @@ struct GestureEditorView<Header: View>: View {
             ))
             .labelsHidden()
             .toggleStyle(.checkbox)
+            .controlSize(.small)
             .accessibilityLabel("Enable \(slot.title)")
 
             GestureDiagramView(
@@ -309,7 +310,7 @@ struct GestureEditorView<Header: View>: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             if slot.actionFixed {
-                Text("Fixed")
+                Text("Built-in")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
             } else {
@@ -329,6 +330,7 @@ struct GestureEditorView<Header: View>: View {
                 }
                 .buttonStyle(.plain)
                 .help("Change action")
+                .accessibilityLabel("Change action for \(slot.title)")
                 .popover(isPresented: Binding(
                     get: { popoverSlotId == slot.id },
                     set: { if !$0 { popoverSlotId = nil } }
@@ -354,9 +356,10 @@ struct GestureEditorView<Header: View>: View {
             .disabled(!modified)
             .font(.caption)
             .opacity(modified ? 1 : 0.35)
+            .accessibilityLabel("Reset \(slot.title) to inherited action")
         }
         .padding(.vertical, 5)
-        .opacity((enabled && !dimSlots) ? 1 : 0.5)
+        .opacity(dimSlots ? 0.65 : 1)
         .contentShape(Rectangle())
         .id(slot.id)
         .listRowBackground(

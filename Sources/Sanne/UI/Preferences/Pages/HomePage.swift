@@ -68,6 +68,23 @@ struct HomePage: View {
                     }
 
                     Section {
+                        Toggle("Haptic feedback", isOn: Binding(
+                            get: { store.config.window.haptics },
+                            set: { v in store.update { $0.window.haptics = v } }
+                        ))
+                        Toggle("Action name overlay", isOn: Binding(
+                            get: { store.config.hud.enabled },
+                            set: { v in store.update { $0.hud.enabled = v } }
+                        ))
+                        Toggle("Snap preview overlay", isOn: Binding(
+                            get: { store.config.window.showPreview },
+                            set: { v in store.update { $0.window.showPreview = v } }
+                        ))
+                    } header: {
+                        Text("Behavior")
+                    }
+
+                    Section {
                         HStack(spacing: 10) {
                             Button {
                                 NotificationCenter.default.post(name: .sanneShowTutorial, object: nil)
@@ -123,29 +140,39 @@ struct HomePage: View {
                 Spacer(minLength: 0)
             }
 
-            HStack(spacing: 8) {
-                SanneStatusPill(
-                    title: app.isPaused ? "Paused" : ((app.multitouchRunning || app.hasMagicMouse) ? "Running" : "Idle"),
-                    kind: app.isPaused ? .warning : ((app.multitouchRunning || app.hasMagicMouse) ? .ok : .neutral)
-                )
-                SanneStatusPill(
-                    title: app.accessibilityTrusted ? "Accessibility" : "Needs Accessibility",
-                    kind: app.accessibilityTrusted ? .ok : .error
-                )
-                if app.hasTrackpad {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
                     SanneStatusPill(
-                        title: app.multitouchRunning ? "Trackpad active" : "Trackpad inactive",
-                        kind: app.multitouchRunning ? .ok : .warning
+                        title: app.isPaused ? "Paused" : ((app.multitouchRunning || app.hasMagicMouse) ? "Running" : "Idle"),
+                        kind: app.isPaused ? .warning : ((app.multitouchRunning || app.hasMagicMouse) ? .ok : .neutral)
                     )
+                    SanneStatusPill(
+                        title: app.accessibilityTrusted ? "Accessibility" : "Needs Accessibility",
+                        kind: app.accessibilityTrusted ? .ok : .error
+                    )
+                    if store.config.keyboard.enabled {
+                        SanneStatusPill(
+                            title: app.inputMonitoringTrusted ? "Input Monitoring" : "Needs Input Monitoring",
+                            kind: app.inputMonitoringTrusted ? .ok : .warning
+                        )
+                    }
                 }
-                if app.hasMagicMouse {
-                    SanneStatusPill(title: "Magic Mouse", kind: .ok)
-                } else {
-                    SanneStatusPill(title: "No Magic Mouse", kind: .neutral)
-                }
-                if let err = app.multitouchError {
-                    SanneStatusPill(title: "Multitouch error", kind: .error)
-                        .help(err)
+                HStack(spacing: 8) {
+                    if app.hasTrackpad {
+                        SanneStatusPill(
+                            title: app.multitouchRunning ? "Trackpad active" : "Trackpad inactive",
+                            kind: app.multitouchRunning ? .ok : .warning
+                        )
+                    }
+                    if app.hasMagicMouse {
+                        SanneStatusPill(title: "Magic Mouse", kind: .ok)
+                    } else {
+                        SanneStatusPill(title: "No Magic Mouse", kind: .neutral)
+                    }
+                    if let err = app.multitouchError {
+                        SanneStatusPill(title: "Multitouch error", kind: .error)
+                            .help(err)
+                    }
                 }
             }
 
@@ -155,6 +182,11 @@ struct HomePage: View {
                     Permissions.openAccessibilitySettings()
                 }
                 .keyboardShortcut(.defaultAction)
+            }
+            if store.config.keyboard.enabled && !app.inputMonitoringTrusted {
+                Button("Grant Input Monitoring") {
+                    app.requestInputMonitoring()
+                }
             }
         }
         .padding(16)
@@ -248,6 +280,9 @@ struct HomePage: View {
     private var statusSummary: String {
         if store.safeMode { return "Safe mode — Standard defaults. Relaunch without Option to load your config." }
         if !app.accessibilityTrusted { return "Grant Accessibility to move windows and recognize gestures." }
+        if store.config.keyboard.enabled && !app.inputMonitoringTrusted {
+            return "Grant Input Monitoring to enable keyboard snap."
+        }
         if app.isPaused { return "All gestures are paused." }
         if app.isEffectivelyPaused {
             let name = NSWorkspace.shared.frontmostApplication?.localizedName ?? "this app"

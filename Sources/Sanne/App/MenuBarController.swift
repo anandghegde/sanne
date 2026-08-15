@@ -476,8 +476,9 @@ final class MenuBarController: NSObject, NSMenuDelegate, NSWindowDelegate {
             window.title = "Sanne Settings"
             window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
             window.titlebarAppearsTransparent = false
-            window.setContentSize(NSSize(width: 820, height: 560))
-            window.minSize = NSSize(width: 720, height: 480)
+            window.setContentSize(NSSize(width: 920, height: 640))
+            window.minSize = NSSize(width: 760, height: 520)
+            window.setFrameAutosaveName("Sanne.Settings")
             window.center()
             window.isReleasedWhenClosed = false
             window.delegate = self

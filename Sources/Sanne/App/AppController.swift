@@ -8,6 +8,7 @@ final class AppController: ObservableObject {
 
     let configStore = ConfigStore.shared
     @Published var accessibilityTrusted = Permissions.isAccessibilityTrusted
+    @Published var inputMonitoringTrusted = Permissions.isInputMonitoringTrusted
     @Published var multitouchRunning = false
     @Published var multitouchError: String?
     @Published var conflicts: [String] = []
@@ -109,11 +110,18 @@ final class AppController: ObservableObject {
                 startMultitouch()
             }
         }
+        inputMonitoringTrusted = Permissions.isInputMonitoringTrusted
         startAXTimerIfNeeded()
     }
 
     func requestAccessibility() {
         Permissions.ensureAccessibility(prompt: true)
+        refreshPermissions()
+    }
+
+    func requestInputMonitoring() {
+        _ = Permissions.requestInputMonitoring()
+        Permissions.openInputMonitoringSettings()
         refreshPermissions()
     }
 

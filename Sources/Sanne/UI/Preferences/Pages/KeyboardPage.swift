@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct KeyboardPage: View {
+    @EnvironmentObject private var app: AppController
     @EnvironmentObject private var store: ConfigStore
 
     var body: some View {
@@ -17,6 +18,21 @@ struct KeyboardPage: View {
                 Text("Sanne consumes the chord so Terminal and other apps do not also see the arrow. macOS may ask for Input Monitoring the first time this is on.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                if store.config.keyboard.enabled && !app.inputMonitoringTrusted {
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Input Monitoring is required for keyboard snap.")
+                                .font(.callout.weight(.medium))
+                            Button("Open Input Monitoring settings") {
+                                app.requestInputMonitoring()
+                            }
+                            .font(.caption)
+                        }
+                    }
+                    .padding(.top, 4)
+                }
             }
 
             Section("Options") {

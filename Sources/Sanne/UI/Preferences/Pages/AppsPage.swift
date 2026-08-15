@@ -69,9 +69,6 @@ struct AppsPage: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 0)
-                Image(systemName: "chevron.right")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.tertiary)
                 Button(role: .destructive) {
                     store.update { $0.appOverrides.removeAll { $0.bundleId == override.bundleId } }
                 } label: {

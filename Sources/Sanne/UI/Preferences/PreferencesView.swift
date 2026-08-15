@@ -47,7 +47,9 @@ struct PreferencesView: View {
         case keyboard = "Keyboard"
         case apps = "Apps"
         case presets = "Presets"
-        case advanced = "Advanced"
+        case advanced = "About & Support"
+        case bindings = "All bindings"
+        case debug = "Debug Log"
 
         var id: String { rawValue }
 
@@ -60,7 +62,9 @@ struct PreferencesView: View {
             case .keyboard: return "keyboard.fill"
             case .apps: return "app.badge.fill"
             case .presets: return "square.stack.3d.up.fill"
-            case .advanced: return "gearshape.fill"
+            case .advanced: return "info.circle.fill"
+            case .bindings: return "slider.horizontal.3"
+            case .debug: return "doc.text.magnifyingglass"
             }
         }
 
@@ -74,12 +78,13 @@ struct PreferencesView: View {
             case .apps: return .orange
             case .presets: return .purple
             case .advanced: return .brown
+            case .bindings: return .teal
+            case .debug: return .gray
             }
         }
     }
 
     @State private var tab: Tab? = .general
-    @State private var advancedPane: AdvancedPage.Pane = .about
     @State private var searchQuery = ""
 
     private var searchHits: [SettingsSearch.Hit] {
@@ -125,7 +130,9 @@ struct PreferencesView: View {
                         case .keyboard: KeyboardPage()
                         case .apps: AppsPage()
                         case .presets: PresetsPage()
-                        case .advanced: AdvancedPage(pane: $advancedPane)
+                        case .advanced: AdvancedPage()
+                        case .bindings: GestureEditorView()
+                        case .debug: DebugLogView()
                         }
                     } else {
                         searchResults
@@ -231,16 +238,13 @@ struct PreferencesView: View {
             tab = .general
             PreferencesRoute.pending = nil
         case PreferencesRoute.debug:
-            tab = .advanced
-            advancedPane = .debug
+            tab = .debug
             PreferencesRoute.pending = nil
         case PreferencesRoute.about:
             tab = .advanced
-            advancedPane = .about
             PreferencesRoute.pending = nil
         case PreferencesRoute.bindings:
-            tab = .advanced
-            advancedPane = .bindings
+            tab = .bindings
             PreferencesRoute.pending = nil
         case PreferencesRoute.magicMouse:
             tab = .magicMouse

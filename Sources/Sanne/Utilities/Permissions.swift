@@ -33,6 +33,10 @@ enum Permissions {
         return CGRequestListenEventAccess()
     }
 
+    static var isInputMonitoringTrusted: Bool {
+        CGPreflightListenEventAccess()
+    }
+
     static func openInputMonitoringSettings() {
         guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent") else { return }
         NSWorkspace.shared.open(url)
