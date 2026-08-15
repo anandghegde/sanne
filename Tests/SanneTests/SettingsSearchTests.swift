@@ -29,6 +29,12 @@ final class SettingsSearchTests: XCTestCase {
         XCTAssertTrue(hits.contains { $0.slotId == GestureSlots.ID.mmLeft })
     }
 
+    func testMagicMouseTipTapResolves() {
+        let hits = SettingsSearch.hits(query: "tip-tap")
+        XCTAssertTrue(hits.contains { $0.slotId == GestureSlots.ID.mmTipTapLeft })
+        XCTAssertTrue(hits.contains { $0.slotId == GestureSlots.ID.mmTipTapRight })
+    }
+
     func testEmptyQueryReturnsNothing() {
         XCTAssertTrue(SettingsSearch.hits(query: "   ").isEmpty)
     }

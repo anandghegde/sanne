@@ -52,6 +52,8 @@ struct MMSession {
     var windowMoveKind: WindowMoverKind = .move
     var multiStartY: Float = 0
     var physicalRightHeld = false
+    /// A tip-tap already fired this contact; lift must not also emit a 2-finger tap.
+    var tipTapFired = false
 
     mutating func reset(clearSuppress: Bool) {
         activeTouchID = -1
@@ -71,6 +73,7 @@ struct MMSession {
         netDx = 0
         netDy = 0
         pageSwipeActive = false
+        tipTapFired = false
         multiMaxTravel = 0
         multiStartY = 0
         multiStartCentroid = .zero

@@ -5,8 +5,8 @@ final class FirstRunPrefsTests: XCTestCase {
     func testDayOneSimpleSlotsStaySmall() {
         let simple = GestureSlots.all.filter { $0.visibility == .simple }
         let mm = simple.filter { $0.group == .magicMouse }
-        XCTAssertEqual(mm.count, 6) // L/R tap, 1F pages, 3F middle, tap-drag
-        XCTAssertEqual(simple.filter { $0.group == .trackpad }.count, 2)
+        XCTAssertEqual(mm.count, 8) // L/R tap, 1F pages, 3F middle, tap-drag, tip-tap L/R
+        XCTAssertEqual(simple.filter { $0.group == .trackpad }.count, 4)
         XCTAssertEqual(simple.filter { $0.group == .keyboard }.count, 7)
         XCTAssertLessThan(simple.filter { $0.group != .keyboard }.count, 25)
     }

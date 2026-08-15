@@ -57,6 +57,8 @@ struct GestureDiagram: Hashable {
         /// Rest one finger and tap a second one to the given side of it. Carries its own side
         /// rather than reusing `side`, which positions the whole chord instead of one dot.
         case tipTap(Side)
+        /// Physical click (trackpad press), distinct from a tap.
+        case click
     }
 
     var device: Device
@@ -97,17 +99,43 @@ struct GestureDiagram: Hashable {
         let long = parts.last == "long"
 
         var side: Side = .center
+        var parsedZone = zone
         if detail == "left", motionName == "tap" { side = .left }
         if detail == "right", motionName == "tap" { side = .right }
+        switch detail {
+        case "topLeft":
+            parsedZone = .topEdge
+            side = .left
+        case "topRight":
+            parsedZone = .topEdge
+            side = .right
+        case "bottomLeft":
+            parsedZone = .bottomEdge
+            side = .left
+        case "bottomRight":
+            parsedZone = .bottomEdge
+            side = .right
+        case "top" where motionName == "tap":
+            parsedZone = .topEdge
+            side = .center
+        default:
+            break
+        }
 
         let motion: Motion
         switch motionName {
         case "tap": motion = fingers >= 3 ? .touch : .tap
         case "touch": motion = .touch
+        case "click": motion = .click
         case "doubleTap": motion = .doubleTap
         case "doubleTapHold": motion = .tapHoldDrag
         case "pinch": motion = detail == "out" ? .pinchOut : .pinchIn
-        case "tipTap": motion = .tipTap(detail == "left" ? .left : .right)
+        case "tipTap":
+            switch detail {
+            case "left": motion = .tipTap(.left)
+            case "right": motion = .tipTap(.right)
+            default: motion = .tipTap(.center)
+            }
         case "drag": motion = .drag
         case "topEdge": return GestureDiagram(device: device, fingers: fingers, motion: .drag, zone: .topEdge)
         case "swipe":
@@ -124,7 +152,7 @@ struct GestureDiagram: Hashable {
             }
         default: motion = .tap
         }
-        return GestureDiagram(device: device, fingers: fingers, motion: motion, side: side, zone: zone, long: long)
+        return GestureDiagram(device: device, fingers: fingers, motion: motion, side: side, zone: parsedZone, long: long)
     }
 }
 
@@ -183,7 +211,12 @@ struct GestureDiagramView: View {
         case .drag: return "drag"
         case .keys: return "keys"
         case .tipTap(let side):
-            return side == .left ? "tip-tap left" : "tip-tap right"
+            switch side {
+            case .left: return "tip-tap left"
+            case .right: return "tip-tap right"
+            case .center: return "tip-tap middle"
+            }
+        case .click: return diagram.fingers == 1 ? "click" : "\(diagram.fingers)-finger click"
         }
     }
 
@@ -299,7 +332,7 @@ struct GestureDiagramView: View {
         // Tip-tap is two fingers in different roles rather than a chord moving together, so it
         // draws its own way instead of going through the shared dot row + arrow layout.
         if case .tipTap(let tapSide) = diagram.motion {
-            drawTipTap(&context, surfaceRect: surfaceRect, tapSide: tapSide)
+            drawTipTap(&context, surfaceRect: surfaceRect, tapSide: tapSide, anchors: max(1, diagram.fingers - 1))
             return
         }
 
@@ -360,7 +393,7 @@ struct GestureDiagramView: View {
                 context.fill(dot, with: .color(accent))
             }
             // Tap ripple ring
-            if diagram.motion == .tap || diagram.motion == .touch,
+            if diagram.motion == .tap || diagram.motion == .touch || diagram.motion == .click,
                let first = dots.first, dots.count == 1
             {
                 let ring = Path(ellipseIn: CGRect(
@@ -372,6 +405,16 @@ struct GestureDiagramView: View {
         }
 
         // Repeat-count badge (double / triple tap)
+        if diagram.motion == .click {
+            let text = Text("click")
+                .font(.system(size: surfaceRect.height * 0.18, weight: .bold, design: .rounded))
+                .foregroundColor(accent)
+            context.draw(
+                context.resolve(text),
+                at: CGPoint(x: surfaceRect.midX, y: surfaceRect.minY + surfaceRect.height * 0.16),
+                anchor: .center
+            )
+        }
         if diagram.motion == .doubleTap || diagram.motion == .tripleTap || diagram.motion == .tapHoldDrag {
             let label = diagram.motion == .tripleTap ? "3×" : "2×"
             let text = Text(label)
@@ -385,22 +428,43 @@ struct GestureDiagramView: View {
         }
     }
 
-    /// Held anchor dot (solid, with a short underline) plus the tapping dot on `tapSide`
+    /// Held anchor dots (solid, with a short underline) plus the tapping dot on `tapSide`
     /// (lighter, with a ripple ring) so the two roles read differently at tile size.
     private func drawTipTap(
         _ context: inout GraphicsContext,
         surfaceRect: CGRect,
-        tapSide: GestureDiagram.Side
+        tapSide: GestureDiagram.Side,
+        anchors: Int
     ) {
-        let dotR = surfaceRect.height * 0.11
-        let gap = surfaceRect.width * 0.2
-        // Offset the pair away from the tapping side so both dots stay well inside the body.
-        let anchorX = surfaceRect.midX + (tapSide == .left ? gap * 0.5 : -gap * 0.5)
+        let dotR = surfaceRect.height * 0.10
+        let gap = surfaceRect.width * 0.18
         let y = surfaceRect.midY
-        let anchor = CGPoint(x: anchorX, y: y)
-        let tap = CGPoint(x: tapSide == .left ? anchorX - gap : anchorX + gap, y: y)
+        let pair = CGFloat(max(anchors, 1))
+        let clusterW = pair > 1 ? gap * 0.55 : 0
+        let shift: CGFloat
+        switch tapSide {
+        case .left: shift = gap * 0.45
+        case .right: shift = -gap * 0.45
+        case .center: shift = 0
+        }
+        let clusterX = surfaceRect.midX + shift
 
-        // Ripple on the tapping finger.
+        var anchorPoints: [CGPoint] = []
+        if anchors <= 1 {
+            anchorPoints = [CGPoint(x: clusterX, y: y)]
+        } else {
+            anchorPoints = [
+                CGPoint(x: clusterX - clusterW, y: y),
+                CGPoint(x: clusterX + clusterW, y: y),
+            ]
+        }
+        let tap: CGPoint
+        switch tapSide {
+        case .left: tap = CGPoint(x: (anchorPoints.map(\.x).min() ?? clusterX) - gap, y: y)
+        case .right: tap = CGPoint(x: (anchorPoints.map(\.x).max() ?? clusterX) + gap, y: y)
+        case .center: tap = CGPoint(x: clusterX, y: y - dotR * 2.2)
+        }
+
         let ring = Path(ellipseIn: CGRect(
             x: tap.x - dotR * 1.85, y: tap.y - dotR * 1.85,
             width: dotR * 3.7, height: dotR * 3.7
@@ -412,16 +476,16 @@ struct GestureDiagramView: View {
         ))
         context.fill(tapDot, with: .color(accent.opacity(0.55)))
 
-        let anchorDot = Path(ellipseIn: CGRect(
-            x: anchor.x - dotR, y: anchor.y - dotR, width: dotR * 2, height: dotR * 2
-        ))
-        context.fill(anchorDot, with: .color(accent))
-
-        // "Held" underline beneath the anchor.
-        var held = Path()
-        held.move(to: CGPoint(x: anchor.x - dotR * 1.25, y: anchor.y + dotR * 2.1))
-        held.addLine(to: CGPoint(x: anchor.x + dotR * 1.25, y: anchor.y + dotR * 2.1))
-        context.stroke(held, with: .color(accent), style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+        for anchor in anchorPoints {
+            let anchorDot = Path(ellipseIn: CGRect(
+                x: anchor.x - dotR, y: anchor.y - dotR, width: dotR * 2, height: dotR * 2
+            ))
+            context.fill(anchorDot, with: .color(accent))
+            var held = Path()
+            held.move(to: CGPoint(x: anchor.x - dotR * 1.15, y: anchor.y + dotR * 2.0))
+            held.addLine(to: CGPoint(x: anchor.x + dotR * 1.15, y: anchor.y + dotR * 2.0))
+            context.stroke(held, with: .color(accent), style: StrokeStyle(lineWidth: 1.4, lineCap: .round))
+        }
     }
 
     private func fingerPositions(count: Int, center: CGPoint, spacing: CGFloat, rect: CGRect) -> [CGPoint] {

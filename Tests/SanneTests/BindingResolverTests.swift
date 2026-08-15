@@ -244,6 +244,44 @@ final class BindingResolverTests: XCTestCase {
         )
     }
 
+    func testMagicMouseTipTapEnabledByDefault() {
+        var config = SanneConfig()
+        config.version = 2
+        let left = BindingResolver.resolve(slotId: GestureSlots.ID.mmTipTapLeft, config: config)
+        let right = BindingResolver.resolve(slotId: GestureSlots.ID.mmTipTapRight, config: config)
+        XCTAssertEqual(left?.enabled, true)
+        XCTAssertEqual(left?.actionId, ActionCatalog.ID.browserPrevTab)
+        XCTAssertEqual(right?.enabled, true)
+        XCTAssertEqual(right?.actionId, ActionCatalog.ID.browserNextTab)
+    }
+
+    func testTrackpadTipTapEnabledByDefault() {
+        var config = SanneConfig()
+        config.version = 2
+        let left = BindingResolver.resolve(slotId: GestureSlots.ID.tipTapLeft, config: config)
+        let right = BindingResolver.resolve(slotId: GestureSlots.ID.tipTapRight, config: config)
+        XCTAssertEqual(left?.enabled, true)
+        XCTAssertEqual(left?.actionId, ActionCatalog.ID.browserPrevTab)
+        XCTAssertEqual(right?.enabled, true)
+        XCTAssertEqual(right?.actionId, ActionCatalog.ID.browserNextTab)
+        XCTAssertEqual(
+            BindingResolver.resolve(slotId: GestureSlots.ID.tipTapMiddle, config: config)?.enabled,
+            false
+        )
+        XCTAssertEqual(
+            BindingResolver.resolve(slotId: GestureSlots.ID.free3Click, config: config)?.enabled,
+            false
+        )
+        XCTAssertEqual(
+            BindingResolver.resolve(slotId: GestureSlots.ID.cornerTopLeft, config: config)?.enabled,
+            false
+        )
+        XCTAssertEqual(
+            BindingResolver.resolve(slotId: GestureSlots.ID.tipTap3Left, config: config)?.enabled,
+            false
+        )
+    }
+
     func testMagicMouseDoubleTapHoldIsRemappable() {
         var config = SanneConfig()
         let slot = GestureSlots.slot(id: GestureSlots.ID.mmDrag)

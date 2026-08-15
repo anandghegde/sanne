@@ -52,6 +52,22 @@ final class DeviceClassifierTests: XCTestCase {
         XCTAssertEqual(kind, .magicTrackpad)
     }
 
+    func testNewTrackpadTriggerDiagrams() {
+        let middle = GestureDiagram.from(slotId: GestureSlots.ID.tipTapMiddle)
+        XCTAssertEqual(middle.device, .trackpad)
+        XCTAssertEqual(middle.motion, .tipTap(.center))
+        let three = GestureDiagram.from(slotId: GestureSlots.ID.tipTap3Left)
+        XCTAssertEqual(three.fingers, 3)
+        XCTAssertEqual(three.motion, .tipTap(.left))
+        let click = GestureDiagram.from(slotId: GestureSlots.ID.free3Click)
+        XCTAssertEqual(click.motion, .click)
+        XCTAssertEqual(click.fingers, 3)
+        let corner = GestureDiagram.from(slotId: GestureSlots.ID.cornerTopLeft)
+        XCTAssertEqual(corner.zone, .topEdge)
+        XCTAssertEqual(corner.side, .left)
+        XCTAssertEqual(corner.motion, .tap)
+    }
+
     func testEverySlotDiagramIsNotAKeyboardTile() {
         for slot in GestureSlots.all where slot.group != .keyboard {
             let diagram = GestureDiagram.from(slotId: slot.id)

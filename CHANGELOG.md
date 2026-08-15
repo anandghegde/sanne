@@ -15,6 +15,9 @@ Versioning follows [SemVer](https://semver.org/) once public releases begin.
 
 ### Added
 
+- **Magic Mouse tip-tap** — rest one finger, tap to its left / right → previous / next tab (BetterTouchTool's factory Magic Mouse mapping). On by default. A simultaneous two-finger tap is still middle-click; the resting finger must sit still first
+- **Trackpad tip-tap on by default** — same rest-then-tap → previous / next tab mapping. A two-finger scroll lands both fingers together and never arms
+- **BTT trackpad triggers** — tip-tap middle, 3-finger tip-tap (left / right / middle), 3-finger physical click (distinct from 3-finger tap), and 1-finger corner / top-edge taps. Off by default; remap in Settings → Trackpad
 - **Continuous thirds** — a longer titlebar swipe left/right walks half → third → two-thirds; preview updates as you go. Same policy as keyboard ←/→
 - **Window-to-Space** — experimental toggle on Advanced; remap any gesture to Move to Space left/right. HUD on failure
 - **Magic Mouse 3-finger top-edge resize** — pair to 2-finger move

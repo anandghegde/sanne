@@ -65,6 +65,29 @@ final class MagicMouseLogicTests: XCTestCase {
         wait(for: [exp], timeout: 1.0)
     }
 
+    func testTipTapSlotsMatchBTTTabDefaults() {
+        let left = GestureSlots.slot(id: GestureSlots.ID.mmTipTapLeft)
+        let right = GestureSlots.slot(id: GestureSlots.ID.mmTipTapRight)
+        XCTAssertEqual(left?.defaultActionId, ActionCatalog.ID.browserPrevTab)
+        XCTAssertEqual(right?.defaultActionId, ActionCatalog.ID.browserNextTab)
+        XCTAssertEqual(left?.defaultEnabled, true)
+        XCTAssertEqual(right?.defaultEnabled, true)
+        XCTAssertEqual(left?.visibility, .simple)
+        XCTAssertEqual(GestureSlots.magicMouseTipTapSlot(side: .left), GestureSlots.ID.mmTipTapLeft)
+        XCTAssertEqual(GestureSlots.magicMouseTipTapSlot(side: .right), GestureSlots.ID.mmTipTapRight)
+        XCTAssertEqual(GestureSlots.magicMouseTipTapSlot(side: .middle), GestureSlots.ID.mmTipTapMiddle)
+        XCTAssertEqual(GestureSlots.slot(id: GestureSlots.ID.mmTipTapMiddle)?.defaultEnabled, false)
+
+        let leftDiagram = GestureDiagram.from(slotId: GestureSlots.ID.mmTipTapLeft)
+        XCTAssertEqual(leftDiagram.device, .magicMouse)
+        XCTAssertEqual(leftDiagram.fingers, 2)
+        XCTAssertEqual(leftDiagram.motion, .tipTap(.left))
+        XCTAssertEqual(
+            GestureDiagram.from(slotId: GestureSlots.ID.mmTipTapRight).motion,
+            .tipTap(.right)
+        )
+    }
+
     func testSyntheticEchoIgnore() {
         var clickGuard = PhysicalClickGuard()
         let t0: TimeInterval = 1_000

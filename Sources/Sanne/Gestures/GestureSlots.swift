@@ -30,6 +30,8 @@ enum GestureSlots {
         case mmTwoFingerTopEdgeMove
         case mmThreeFingerTopEdgeResize
         case mmOneFingerSwipePages
+        case mmTipTap
+        case mmTipTapMiddle
         case titlebarMaster
         case tbHalves
         case tbThirds
@@ -54,6 +56,10 @@ enum GestureSlots {
         case trackpadFreeFourSwipe
         case trackpadFreeFourTap
         case trackpadTipTap
+        case trackpadTipTapMiddle
+        case trackpadThreeFingerTipTap
+        case trackpadThreeFingerClick
+        case trackpadCornerTaps
         case keyboardSnap
         case keyboardDisplay
     }
@@ -104,6 +110,10 @@ enum GestureSlots {
         static let mm3fTopEdgeResize = "mouse.surface.3.topEdge.dragResize"
         static let mm1fSwipeLeft = "mouse.surface.1.swipe.left"
         static let mm1fSwipeRight = "mouse.surface.1.swipe.right"
+        // Finger count stays 2 so `GestureDiagram.from(slotId:)` draws both contacts.
+        static let mmTipTapLeft = "mouse.surface.2.tipTap.left"
+        static let mmTipTapRight = "mouse.surface.2.tipTap.right"
+        static let mmTipTapMiddle = "mouse.surface.2.tipTap.middle"
 
         static let tbLeft = "trackpad.titlebar.2.swipe.left"
         static let tbRight = "trackpad.titlebar.2.swipe.right"
@@ -145,6 +155,16 @@ enum GestureSlots {
         // Finger count stays 2 so `GestureDiagram.from(slotId:)` draws both contacts.
         static let tipTapLeft = "trackpad.free.2.tipTap.left"
         static let tipTapRight = "trackpad.free.2.tipTap.right"
+        static let tipTapMiddle = "trackpad.free.2.tipTap.middle"
+        static let tipTap3Left = "trackpad.free.3.tipTap.left"
+        static let tipTap3Right = "trackpad.free.3.tipTap.right"
+        static let tipTap3Middle = "trackpad.free.3.tipTap.middle"
+        static let free3Click = "trackpad.free.3.click"
+        static let cornerTopLeft = "trackpad.free.1.tap.topLeft"
+        static let cornerTopRight = "trackpad.free.1.tap.topRight"
+        static let cornerBottomLeft = "trackpad.free.1.tap.bottomLeft"
+        static let cornerBottomRight = "trackpad.free.1.tap.bottomRight"
+        static let tapTop = "trackpad.free.1.tap.top"
 
         static let kbLeft = "keyboard.chord.left"
         static let kbRight = "keyboard.chord.right"
@@ -182,6 +202,15 @@ enum GestureSlots {
               defaultActionId: ActionCatalog.ID.spaceLeft, legacyGate: .mmTwoFingerSpaces, actionFixed: false, defaultEnabled: false),
         .init(id: ID.mm2fSwipeRight, group: .magicMouse, title: "2-finger swipe right", detail: "Spaces (off by default)",
               defaultActionId: ActionCatalog.ID.spaceRight, legacyGate: .mmTwoFingerSpaces, actionFixed: false, defaultEnabled: false),
+        // BTT factory default: rest one finger, tap the other. Positional, so tap left →
+        // previous tab. Distinguished from 2-finger middle-click by requiring the first
+        // finger to sit still before the second lands.
+        .init(id: ID.mmTipTapLeft, group: .magicMouse, title: "Tip-tap left", detail: "Hold a finger, tap to its left",
+              defaultActionId: ActionCatalog.ID.browserPrevTab, legacyGate: .mmTipTap, actionFixed: false, visibility: .simple),
+        .init(id: ID.mmTipTapRight, group: .magicMouse, title: "Tip-tap right", detail: "Hold a finger, tap to its right",
+              defaultActionId: ActionCatalog.ID.browserNextTab, legacyGate: .mmTipTap, actionFixed: false, visibility: .simple),
+        .init(id: ID.mmTipTapMiddle, group: .magicMouse, title: "Tip-tap middle", detail: "Hold a finger, tap near it (off by default)",
+              defaultActionId: ActionCatalog.ID.browserCloseTab, legacyGate: .mmTipTapMiddle, actionFixed: false, defaultEnabled: false),
         // 3-finger swipes share the chord with the 3-finger middle-click above; travel decides
         // which fires. Tabs on L/R follows the same spatial mapping as the free-space 4-finger
         // swipes and tip-tap (tap/swipe left → go left) rather than content-follows-finger.
@@ -281,12 +310,33 @@ enum GestureSlots {
               defaultActionId: ActionCatalog.ID.keySpotlight, legacyGate: .trackpadFreeFourTap, actionFixed: false, defaultEnabled: false),
 
         // Free trackpad — tip-tap (hold one finger, tap a second beside it). Positional, not
-        // directional, so the side maps straight through: tap left → go left. Defaults to tabs
-        // rather than history so it does not duplicate the 3-finger swipe defaults above.
-        .init(id: ID.tipTapLeft, group: .trackpad, title: "Tip-tap left", detail: "Hold a finger, tap to its left (off by default)",
-              defaultActionId: ActionCatalog.ID.browserPrevTab, legacyGate: .trackpadTipTap, actionFixed: false, defaultEnabled: false),
-        .init(id: ID.tipTapRight, group: .trackpad, title: "Tip-tap right", detail: "Hold a finger, tap to its right (off by default)",
-              defaultActionId: ActionCatalog.ID.browserNextTab, legacyGate: .trackpadTipTap, actionFixed: false, defaultEnabled: false),
+        // directional, so the side maps straight through: tap left → go left. Same BTT factory
+        // mapping as Magic Mouse tip-tap. A simultaneous two-finger scroll lands both fingers
+        // together and never arms, so this can stay on next to scrolling.
+        .init(id: ID.tipTapLeft, group: .trackpad, title: "Tip-tap left", detail: "Hold a finger, tap to its left",
+              defaultActionId: ActionCatalog.ID.browserPrevTab, legacyGate: .trackpadTipTap, actionFixed: false, visibility: .simple),
+        .init(id: ID.tipTapRight, group: .trackpad, title: "Tip-tap right", detail: "Hold a finger, tap to its right",
+              defaultActionId: ActionCatalog.ID.browserNextTab, legacyGate: .trackpadTipTap, actionFixed: false, visibility: .simple),
+        .init(id: ID.tipTapMiddle, group: .trackpad, title: "Tip-tap middle", detail: "Hold a finger, tap near it (off by default)",
+              defaultActionId: ActionCatalog.ID.browserCloseTab, legacyGate: .trackpadTipTapMiddle, actionFixed: false, defaultEnabled: false),
+        .init(id: ID.tipTap3Left, group: .trackpad, title: "3-finger tip-tap left", detail: "Hold two fingers, tap to their left (off by default)",
+              defaultActionId: ActionCatalog.ID.browserPrevTab, legacyGate: .trackpadThreeFingerTipTap, actionFixed: false, defaultEnabled: false),
+        .init(id: ID.tipTap3Right, group: .trackpad, title: "3-finger tip-tap right", detail: "Hold two fingers, tap to their right (off by default)",
+              defaultActionId: ActionCatalog.ID.browserNextTab, legacyGate: .trackpadThreeFingerTipTap, actionFixed: false, defaultEnabled: false),
+        .init(id: ID.tipTap3Middle, group: .trackpad, title: "3-finger tip-tap middle", detail: "Hold two fingers, tap near them (off by default)",
+              defaultActionId: ActionCatalog.ID.browserCloseTab, legacyGate: .trackpadThreeFingerTipTap, actionFixed: false, defaultEnabled: false),
+        .init(id: ID.free3Click, group: .trackpad, title: "3-finger click", detail: "Physical click with three fingers (off by default)",
+              defaultActionId: ActionCatalog.ID.clickMiddle, legacyGate: .trackpadThreeFingerClick, actionFixed: false, defaultEnabled: false),
+        .init(id: ID.cornerTopLeft, group: .trackpad, title: "Tap top-left", detail: "Corner (off by default)",
+              defaultActionId: ActionCatalog.ID.missionControl, legacyGate: .trackpadCornerTaps, actionFixed: false, defaultEnabled: false),
+        .init(id: ID.cornerTopRight, group: .trackpad, title: "Tap top-right", detail: "Corner (off by default)",
+              defaultActionId: ActionCatalog.ID.appExpose, legacyGate: .trackpadCornerTaps, actionFixed: false, defaultEnabled: false),
+        .init(id: ID.cornerBottomLeft, group: .trackpad, title: "Tap bottom-left", detail: "Corner (off by default)",
+              defaultActionId: ActionCatalog.ID.spaceLeft, legacyGate: .trackpadCornerTaps, actionFixed: false, defaultEnabled: false),
+        .init(id: ID.cornerBottomRight, group: .trackpad, title: "Tap bottom-right", detail: "Corner (off by default)",
+              defaultActionId: ActionCatalog.ID.spaceRight, legacyGate: .trackpadCornerTaps, actionFixed: false, defaultEnabled: false),
+        .init(id: ID.tapTop, group: .trackpad, title: "Tap top edge", detail: "Top band (off by default)",
+              defaultActionId: ActionCatalog.ID.keySpotlight, legacyGate: .trackpadCornerTaps, actionFixed: false, defaultEnabled: false),
 
         // Keyboard — ⌃⌥ chord. ↓ restores (titlebar ↓ stays minimize). Repeat ←/→ still
         // cycles thirds when that Keyboard page option is on.
@@ -390,8 +440,27 @@ enum GestureSlots {
         }
     }
 
-    static func tipTapSlot(side: TipTapRecognizer.Side) -> String {
-        side == .left ? ID.tipTapLeft : ID.tipTapRight
+    static func tipTapSlot(side: TipTapRecognizer.Side, fingers: Int = 2) -> String {
+        if fingers >= 3 {
+            switch side {
+            case .left: return ID.tipTap3Left
+            case .right: return ID.tipTap3Right
+            case .middle: return ID.tipTap3Middle
+            }
+        }
+        switch side {
+        case .left: return ID.tipTapLeft
+        case .right: return ID.tipTapRight
+        case .middle: return ID.tipTapMiddle
+        }
+    }
+
+    static func magicMouseTipTapSlot(side: TipTapRecognizer.Side) -> String {
+        switch side {
+        case .left: return ID.mmTipTapLeft
+        case .right: return ID.mmTipTapRight
+        case .middle: return ID.mmTipTapMiddle
+        }
     }
 
     /// Master section switch for a slot group.
@@ -410,8 +479,10 @@ enum GestureSlots {
 
     static func defaultEnabled(for gate: LegacyGate) -> Bool {
         switch gate {
-        case .mmTwoFingerSpaces, .mmThreeFingerSwipes, .dockQuit,
-             .trackpadFreeThreeSwipe, .trackpadFreeFourSwipe, .trackpadFreeFourTap, .trackpadTipTap:
+        case .mmTwoFingerSpaces, .mmThreeFingerSwipes, .mmTipTapMiddle, .dockQuit,
+             .trackpadFreeThreeSwipe, .trackpadFreeFourSwipe, .trackpadFreeFourTap,
+             .trackpadTipTapMiddle, .trackpadThreeFingerTipTap, .trackpadThreeFingerClick,
+             .trackpadCornerTaps:
             return false
         default:
             return true
@@ -439,6 +510,8 @@ enum GestureSlots {
         case .mmTwoFingerTopEdgeMove: return mm.twoFingerTopEdgeMove
         case .mmThreeFingerTopEdgeResize: return true
         case .mmOneFingerSwipePages: return mm.oneFingerSwipePages
+        case .mmTipTap: return true
+        case .mmTipTapMiddle: return false
         case .titlebarMaster: return tb.enabled
         case .tbHalves: return tb.swipeHalves
         case .tbThirds: return tb.swipeThirds
@@ -463,6 +536,10 @@ enum GestureSlots {
         case .trackpadFreeFourSwipe: return config.trackpad.fourFingerSwipes
         case .trackpadFreeFourTap: return config.trackpad.fourFingerTap
         case .trackpadTipTap: return config.trackpad.tipTap
+        case .trackpadTipTapMiddle: return false
+        case .trackpadThreeFingerTipTap: return false
+        case .trackpadThreeFingerClick: return false
+        case .trackpadCornerTaps: return false
         case .keyboardSnap: return config.keyboard.snapWithArrows
         case .keyboardDisplay: return config.keyboard.moveToAdjacentDisplay
         }

@@ -24,6 +24,7 @@ final class MagicMouseTapController: @unchecked Sendable {
     private var mouseClickLocalMonitor: Any?
     private var pendingTwoFingerMiddleWorkItem: DispatchWorkItem?
     private var windowMoveUpdateQueued = false
+    private let tipTap = TipTapRecognizer()
 
     func start(onEvent: @escaping (MagicMouseEvent) -> Void) {
         lock.lock()
@@ -58,6 +59,7 @@ final class MagicMouseTapController: @unchecked Sendable {
         stopScrollWheelMonitorUnlocked()
         stopMouseClickMonitorUnlocked()
         cancelPendingTwoFingerMiddle()
+        tipTap.reset()
         session.reset(clearSuppress: true)
         scrollLock = ScrollLock()
         physicalGuard = PhysicalClickGuard()
@@ -112,6 +114,7 @@ final class MagicMouseTapController: @unchecked Sendable {
         }
 
         if numTouches <= 0 {
+            feedTipTap(points: [], snap: snap)
             handleLift(snap: snap)
             return
         }
@@ -119,7 +122,10 @@ final class MagicMouseTapController: @unchecked Sendable {
         lock.lock()
         let suppressed = session.suppressUntilLift
         lock.unlock()
-        if suppressed { return }
+        if suppressed {
+            tipTap.reset()
+            return
+        }
 
         guard let touches else {
             Log.warn(.tap, "cb#\(n) nil touches ptr")
@@ -131,6 +137,13 @@ final class MagicMouseTapController: @unchecked Sendable {
             contactIndices.append(i)
         }
         if contactIndices.isEmpty { return }
+
+        feedTipTap(
+            points: contactIndices.map { i in
+                Self.touchPoint(PrivateMT.touch(at: touches, index: i))
+            },
+            snap: snap
+        )
 
         if contactIndices.count >= 2 {
             handleMultiFinger(touches: touches, numTouches: numTouches, snap: snap)
@@ -453,12 +466,17 @@ final class MagicMouseTapController: @unchecked Sendable {
         let tapBlocked = start.map { scrollLock.isBlocked(contactStart: $0) } ?? false
         let physicalOwns = physicalGuard.shouldSuppress()
         let rightHeld = session.physicalRightHeld
+        let tipTapConsumed = session.tipTapFired
         session.reset(clearSuppress: true)
         physicalGuard.clearContactFlag()
         session.lastMouseTouchTime = CFAbsoluteTimeGetCurrent()
         lock.unlock()
 
         guard id != -1 || multi, let start else { return }
+        if tipTapConsumed {
+            Log.debug(.tap, "lift after tip-tap — skip click / multi")
+            return
+        }
 
         let now = CFAbsoluteTimeGetCurrent()
         let duration = now - start
@@ -620,6 +638,7 @@ final class MagicMouseTapController: @unchecked Sendable {
         case .none: break
         }
         Log.debug(.tap, "session dead until lift (\(reason))")
+        tipTap.reset()
     }
 
     private func endActiveDragUnlocked(reason: String) {
@@ -655,6 +674,63 @@ final class MagicMouseTapController: @unchecked Sendable {
     private func cancelPendingTwoFingerMiddle() {
         pendingTwoFingerMiddleWorkItem?.cancel()
         pendingTwoFingerMiddleWorkItem = nil
+    }
+
+    // MARK: Tip-tap
+
+    private func feedTipTap(points: [TouchPoint], snap: RuntimeSnapshot) {
+        let wantLeft = snap.slotOn(GestureSlots.ID.mmTipTapLeft)
+        let wantRight = snap.slotOn(GestureSlots.ID.mmTipTapRight)
+        guard wantLeft || wantRight else {
+            tipTap.reset()
+            return
+        }
+
+        let now = CFAbsoluteTimeGetCurrent()
+        lock.lock()
+        let skip = session.dragPhase == .active
+            || session.windowMovePhase == .active
+            || session.pageSwipeActive
+            || scrollLock.isBlocked(contactStart: session.touchStartTime ?? now)
+        lock.unlock()
+        if skip {
+            tipTap.reset()
+            return
+        }
+
+        let frame = TouchFrame(
+            timestamp: now,
+            deviceID: 0,
+            deviceKind: .magicMouse,
+            touches: points
+        )
+        guard case .tipTap(let side) = tipTap.process(frame: frame, sensitivity: snap.mmSensitivity) else {
+            return
+        }
+        let slotId = GestureSlots.magicMouseTipTapSlot(side: side)
+        guard snap.slotOn(slotId) else { return }
+
+        lock.lock()
+        session.tipTapFired = true
+        session.lastTwoFingerTapTime = nil
+        lock.unlock()
+        cancelPendingTwoFingerMiddle()
+        Log.info(.tap, "→ TIP TAP \(side.label) slot=\(slotId)")
+        emit(.recognized(slotId: slotId, clickCount: 1))
+    }
+
+    private static func touchPoint(_ t: MTTouchC) -> TouchPoint {
+        TouchPoint(
+            id: Int(t.identifier),
+            normalized: CGPoint(x: CGFloat(t.normX), y: CGFloat(t.normY)),
+            majorAxis: t.majorAxis,
+            minorAxis: t.minorAxis,
+            state: Int(t.state),
+            phase: .moved,
+            size: t.size,
+            velX: t.velX,
+            velY: t.velY
+        )
     }
 
     private func emitClick(_ button: ClickButton, snap: RuntimeSnapshot, cursor: CGPoint, now: TimeInterval) {

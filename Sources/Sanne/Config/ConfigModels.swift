@@ -302,8 +302,7 @@ struct TrackpadConfig: Codable, Equatable {
     /// Free-space 4-finger tap. Off by default.
     var fourFingerTap: Bool = false
     /// Tip-tap: rest one finger, tap beside it (left / right are separate gestures).
-    /// Off by default — it shares the pad with two-finger scrolling.
-    var tipTap: Bool = false
+    var tipTap: Bool = true
     var sensitivity: Int = 0
 
     init() {}
@@ -315,7 +314,7 @@ struct TrackpadConfig: Codable, Equatable {
         threeFingerSwipes = try c.decodeIfPresent(Bool.self, forKey: .threeFingerSwipes) ?? false
         fourFingerSwipes = try c.decodeIfPresent(Bool.self, forKey: .fourFingerSwipes) ?? false
         fourFingerTap = try c.decodeIfPresent(Bool.self, forKey: .fourFingerTap) ?? false
-        tipTap = try c.decodeIfPresent(Bool.self, forKey: .tipTap) ?? false
+        tipTap = try c.decodeIfPresent(Bool.self, forKey: .tipTap) ?? true
         sensitivity = try c.decodeIfPresent(Int.self, forKey: .sensitivity) ?? 0
     }
 

@@ -130,7 +130,7 @@ final class TipTapRecognizerTests: XCTestCase {
         XCTAssertEqual(ok, .tipTap(.left))
     }
 
-    func testInsufficientSeparationRejected() {
+    func testInsufficientSeparationIsMiddle() {
         _ = process(at: 0.00, touches: [(1, 0.50, 0.50, .began)])
         _ = process(at: 0.16, touches: [(1, 0.50, 0.50, .stationary)])
         // dx = 0.02 < minSeparation (0.04)
@@ -141,7 +141,62 @@ final class TipTapRecognizerTests: XCTestCase {
         let outcome = process(at: 0.20, touches: [
             (1, 0.50, 0.50, .stationary)
         ])
-        XCTAssertEqual(outcome, .none)
+        XCTAssertEqual(outcome, .tipTap(.middle))
+    }
+
+    func testThreeFingerTipTapLeft() {
+        let rec = TipTapRecognizer(anchorCount: 2)
+        func step(
+            _ offset: TimeInterval,
+            _ touches: [(Int, CGFloat, CGFloat, TouchPhase)]
+        ) -> TipTapRecognizer.Outcome {
+            rec.process(
+                frame: TouchFrameFixtures.frame(
+                    at: t0.addingTimeInterval(offset),
+                    touches: touches.map { (id: $0.0, x: $0.1, y: $0.2, phase: $0.3) }
+                ),
+                sensitivity: 0
+            )
+        }
+        _ = step(0.00, [(1, 0.40, 0.50, .began), (2, 0.50, 0.50, .began)])
+        _ = step(0.16, [(1, 0.40, 0.50, .stationary), (2, 0.50, 0.50, .stationary)])
+        _ = step(0.17, [
+            (1, 0.40, 0.50, .stationary),
+            (2, 0.50, 0.50, .stationary),
+            (3, 0.20, 0.50, .began),
+        ])
+        let left = step(0.20, [
+            (1, 0.40, 0.50, .stationary),
+            (2, 0.50, 0.50, .stationary),
+        ])
+        XCTAssertEqual(left, .tipTap(.left))
+    }
+
+    func testThreeFingerChordTogetherDoesNotTipTap() {
+        let rec = TipTapRecognizer(anchorCount: 2)
+        let first = rec.process(
+            frame: TouchFrameFixtures.frame(
+                at: t0,
+                touches: [
+                    (id: 1, x: 0.30, y: 0.50, phase: .began),
+                    (id: 2, x: 0.45, y: 0.50, phase: .began),
+                    (id: 3, x: 0.60, y: 0.50, phase: .began),
+                ]
+            ),
+            sensitivity: 0
+        )
+        XCTAssertEqual(first, .none)
+        let later = rec.process(
+            frame: TouchFrameFixtures.frame(
+                at: t0.addingTimeInterval(0.20),
+                touches: [
+                    (id: 1, x: 0.30, y: 0.50, phase: .stationary),
+                    (id: 2, x: 0.45, y: 0.50, phase: .stationary),
+                ]
+            ),
+            sensitivity: 0
+        )
+        XCTAssertEqual(later, .none)
     }
 
     // MARK: - Helpers

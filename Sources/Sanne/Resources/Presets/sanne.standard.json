@@ -51,7 +51,7 @@
     "threeFingerSwipes": false,
     "fourFingerSwipes": false,
     "fourFingerTap": false,
-    "tipTap": false,
+    "tipTap": true,
     "sensitivity": 0
   },
   "customActions": [],

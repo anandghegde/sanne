@@ -13,6 +13,8 @@ private struct GestureSession {
     var dragBegan = false
     var loggedPreviewLayout: WindowLayout?
     var snapshot = RuntimeSnapshot.empty
+    var threeFingerTipTapFired = false
+    var physicalThreeFingerClick = false
 }
 
 private struct SessionBegin {
@@ -33,6 +35,11 @@ final class GestureEngine: @unchecked Sendable {
     private let threeFingerDrag = ThreeFingerDragRecognizer()
     private let fourFingerTap = ThreeFingerDragRecognizer()
     private let tipTap = TipTapRecognizer()
+    private let threeFingerTipTap = TipTapRecognizer(anchorCount: 2)
+    private let cornerTap = CornerTapRecognizer()
+    private var clickGuard = PhysicalClickGuard()
+    private var leftClickGlobalMonitor: Any?
+    private var leftClickLocalMonitor: Any?
     private var listenerID: UUID?
 
     private var session = GestureSession()
@@ -63,6 +70,7 @@ final class GestureEngine: @unchecked Sendable {
         listenerID = TouchDeviceManager.shared.addListener { [weak self] frame in
             self?.handle(frame)
         }
+        startThreeFingerClickMonitor()
         Log.info(.gesture, "GestureEngine started (titlebar + Dock + menubar + Magic Mouse taps)")
     }
 
@@ -80,6 +88,9 @@ final class GestureEngine: @unchecked Sendable {
         fourFingerTap.reset()
         swipePinch.reset()
         tipTap.reset()
+        threeFingerTipTap.reset()
+        cornerTap.reset()
+        stopThreeFingerClickMonitor()
         session = GestureSession()
         awaitingBegin = false
         sessionReady = false
@@ -130,6 +141,8 @@ final class GestureEngine: @unchecked Sendable {
             }
             swipePinch.reset()
             tipTap.reset()
+            threeFingerTipTap.reset()
+            cornerTap.reset()
             fourFingerTap.reset()
             session = GestureSession()
             awaitingBegin = false
@@ -237,6 +250,8 @@ final class GestureEngine: @unchecked Sendable {
             if live.isEmpty {
                 swipePinch.reset()
                 tipTap.reset()
+                threeFingerTipTap.reset()
+                cornerTap.reset()
                 clearGestureContext()
             }
             return
@@ -292,6 +307,8 @@ final class GestureEngine: @unchecked Sendable {
         session.pinchCandidate = nil
         session.peakFingers = 0
         session.dragBegan = false
+        session.threeFingerTipTapFired = false
+        session.physicalThreeFingerClick = false
         sessionReady = false
         awaitingBegin = false
         hadTouches = false
@@ -305,8 +322,16 @@ final class GestureEngine: @unchecked Sendable {
 
         if session.peakFingers <= 2 {
             handleFreeSpaceTipTap(frame: frame, snap: snap)
+            if session.peakFingers == 1 {
+                handleFreeSpaceCornerTap(frame: frame, snap: snap)
+            } else {
+                cornerTap.reset()
+            }
             return
         }
+
+        tipTap.reset()
+        cornerTap.reset()
 
         if session.peakFingers >= 4 {
             if threeFingerDrag.isDragging {
@@ -314,6 +339,7 @@ final class GestureEngine: @unchecked Sendable {
                 Log.info(.gesture, "3F drag released — 4-finger chord took over")
             }
             threeFingerDrag.reset()
+            threeFingerTipTap.reset()
             session.dragBegan = false
 
             if handleFreeSpaceSwipes(frame: frame, snap: snap) { return }
@@ -323,6 +349,7 @@ final class GestureEngine: @unchecked Sendable {
             return
         }
 
+        handleFreeSpaceThreeFingerTipTap(frame: frame, snap: snap)
         handleFreeSpaceThreeFinger(frame: frame, snap: snap)
         guard !session.dragBegan else { return }
         handleFreeSpaceSwipes(frame: frame, snap: snap)
@@ -334,6 +361,23 @@ final class GestureEngine: @unchecked Sendable {
             sensitivity: snap.trackpadSensitivity
         ) else { return }
         runSlot(GestureSlots.tipTapSlot(side: side), snap: snap)
+    }
+
+    private func handleFreeSpaceThreeFingerTipTap(frame: TouchFrame, snap: RuntimeSnapshot) {
+        guard case .tipTap(let side) = threeFingerTipTap.process(
+            frame: frame,
+            sensitivity: snap.trackpadSensitivity
+        ) else { return }
+        session.threeFingerTipTapFired = true
+        runSlot(GestureSlots.tipTapSlot(side: side, fingers: 3), snap: snap)
+    }
+
+    private func handleFreeSpaceCornerTap(frame: TouchFrame, snap: RuntimeSnapshot) {
+        guard case .tap(let region) = cornerTap.process(
+            frame: frame,
+            sensitivity: snap.trackpadSensitivity
+        ) else { return }
+        runSlot(CornerTapRecognizer.slotId(for: region), snap: snap)
     }
 
     @discardableResult
@@ -364,6 +408,7 @@ final class GestureEngine: @unchecked Sendable {
         case .dragBegan(let downAt, let cursor):
             guard dragOn else { break }
             session.dragBegan = true
+            clickGuard.armSyntheticEcho()
             ClickEmitter.mouseDown(.left, at: downAt)
             if hypot(cursor.x - downAt.x, cursor.y - downAt.y) >= 0.5 {
                 ClickEmitter.mouseDragged(.left, at: cursor)
@@ -378,6 +423,7 @@ final class GestureEngine: @unchecked Sendable {
             guard dragOn else { break }
             ClickEmitter.mouseUp(.left, at: at)
         case .tap:
+            if session.threeFingerTipTapFired || session.physicalThreeFingerClick { break }
             runSlot(GestureSlots.ID.free3Tap, snap: snap)
             TutorialPrefs.post(.trackpadMiddleClick)
         }
@@ -519,6 +565,46 @@ final class GestureEngine: @unchecked Sendable {
 
     private func hopHidePreview() {
         MainHop.async { WindowManager.shared.hidePreview() }
+    }
+
+    // MARK: - 3-finger click
+
+    private func startThreeFingerClickMonitor() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.leftClickGlobalMonitor == nil else { return }
+            let mask: NSEvent.EventTypeMask = .leftMouseDown
+            self.leftClickGlobalMonitor = NSEvent.addGlobalMonitorForEvents(matching: mask) { [weak self] _ in
+                self?.pipeline.async { self?.notePossibleThreeFingerClick() }
+            }
+            self.leftClickLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: mask) { [weak self] event in
+                self?.pipeline.async { self?.notePossibleThreeFingerClick() }
+                return event
+            }
+        }
+    }
+
+    private func stopThreeFingerClickMonitor() {
+        let global = leftClickGlobalMonitor
+        let local = leftClickLocalMonitor
+        leftClickGlobalMonitor = nil
+        leftClickLocalMonitor = nil
+        if global != nil || local != nil {
+            DispatchQueue.main.async {
+                if let global { NSEvent.removeMonitor(global) }
+                if let local { NSEvent.removeMonitor(local) }
+            }
+        }
+    }
+
+    private func notePossibleThreeFingerClick() {
+        if clickGuard.shouldIgnoreEcho() { return }
+        guard session.zone == .free,
+              session.peakFingers >= 3,
+              !session.dragBegan,
+              !session.physicalThreeFingerClick
+        else { return }
+        session.physicalThreeFingerClick = true
+        _ = runSlot(GestureSlots.ID.free3Click, snap: session.snapshot)
     }
 
     // MARK: - Dock
