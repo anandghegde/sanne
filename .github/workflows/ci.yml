@@ -53,8 +53,17 @@ jobs:
           /usr/libexec/PlistBuddy -c "Print :LSMinimumSystemVersion" dist/Sanne.app/Contents/Info.plist | grep -qx "12.0"
           codesign --verify dist/Sanne.app
 
+      - name: Package app zip (preserves .app bundle and exec permissions)
+        # Upload-artifact flattens to the least-common-ancestor, which would
+        # strip the Sanne.app wrapper from the archive. Zip it ourselves first;
+        # the artifact download then contains a normal macOS zip of the app.
+        run: |
+          cd dist
+          ditto -c -k --sequesterRsrc --keepParent Sanne.app Sanne-macos-universal.zip
+          unzip -l Sanne-macos-universal.zip | grep -q "Sanne.app/Contents/MacOS/Sanne"
+
       - uses: actions/upload-artifact@v4
         with:
           name: Sanne-universal-app
-          path: dist/Sanne.app
+          path: dist/Sanne-macos-universal.zip
           if-no-files-found: error
