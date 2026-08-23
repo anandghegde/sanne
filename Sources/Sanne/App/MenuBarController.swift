@@ -471,7 +471,11 @@ final class MenuBarController: NSObject, NSMenuDelegate, NSWindowDelegate {
             let hosting = NSHostingController(rootView: view)
             // Empty: do not adopt SwiftUI ideal/min size. A tall Form/List would otherwise
             // make the hosting view taller than the window and clip the page title.
-            hosting.sizingOptions = []
+            // macOS 12 has no sizingOptions (hosting always tracks standard bounds); the
+            // explicit content/min size set below still wins there.
+            if #available(macOS 13.0, *) {
+                hosting.sizingOptions = []
+            }
             let window = NSWindow(contentViewController: hosting)
             window.title = "Sanne Settings"
             window.styleMask = [.titled, .closable, .miniaturizable, .resizable]

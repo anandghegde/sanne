@@ -314,9 +314,8 @@ final class AppController: ObservableObject {
         axTimer = nil
         guard !accessibilityTrusted else { return }
         axTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                self?.refreshPermissions()
-            }
+            guard let self else { return }
+            Task { @MainActor in self.refreshPermissions() }
         }
     }
 

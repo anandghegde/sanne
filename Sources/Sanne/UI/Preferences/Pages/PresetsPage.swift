@@ -74,7 +74,6 @@ struct PresetsPage: View {
                         Text("Reset")
                     }
                 }
-                .formStyle(.grouped)
                 .frame(maxWidth: 680)
             }
             .confirmationDialog(

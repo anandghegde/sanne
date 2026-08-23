@@ -1,0 +1,53 @@
+name: Release
+
+# Publish a release by pushing a tag: git tag v0.3.0 && git push origin v0.3.0
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build & Publish Release
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: swift --version
+
+      - name: Package universal .app + DMG
+        env:
+          # Ad-hoc signature (no signing secrets in CI). Users may need
+          # right-click → Open on first launch because the build is not notarized.
+          SANNE_SIGN_IDENTITY: "-"
+        run: ./scripts/package-dmg.sh --universal
+
+      - name: Verify fat binary and minimum OS
+        run: |
+          set -euo pipefail
+          lipo -info dist/Sanne.app/Contents/MacOS/Sanne
+          lipo -archs dist/Sanne.app/Contents/MacOS/Sanne | grep -qw arm64
+          lipo -archs dist/Sanne.app/Contents/MacOS/Sanne | grep -qw x86_64
+          /usr/libexec/PlistBuddy -c "Print :LSMinimumSystemVersion" dist/Sanne.app/Contents/Info.plist | grep -qx "12.0"
+          codesign --verify dist/Sanne.app
+          ls -lh dist/*.dmg dist/*.dmg.sha256
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          gh release create "$GITHUB_REF_NAME" \
+            --title "Sanne $VERSION" \
+            --generate-notes \
+            --notes "Universal build (Apple Silicon + Intel). Minimum macOS 12.
+
+          Not signed with a Developer ID — on first launch, right-click Sanne.app → Open." \
+            dist/*.dmg dist/*.dmg.sha256

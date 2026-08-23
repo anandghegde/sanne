@@ -45,7 +45,6 @@ struct AppsPage: View {
                 }
                 OrphanAppGestureRemapsSection()
             }
-            .formStyle(.grouped)
             .sheet(isPresented: $showRunningApps) {
                 runningAppsSheet
             }
@@ -85,7 +84,7 @@ struct AppsPage: View {
                     }
                     return "off"
                 },
-                set: { raw in
+                set: { (raw: String) in
                     store.update { cfg in
                         guard let i = cfg.appOverrides.firstIndex(where: { $0.bundleId == override.bundleId }) else { return }
                         if raw == "off" {

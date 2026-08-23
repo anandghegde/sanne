@@ -50,7 +50,6 @@ struct AdvancedPage: View {
                     Text("Updates")
                 }
             }
-            .formStyle(.grouped)
             .frame(maxWidth: 560)
         }
     }

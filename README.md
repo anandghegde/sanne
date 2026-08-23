@@ -4,6 +4,8 @@ Native macOS gestures for Magic Mouse and trackpad — opinionated defaults, ful
 
 **Free and open source** (MIT). No trial, no paid tier, no account.
 
+**Requires macOS 12+** (Apple Silicon or Intel universal binary).
+
 > Install Sanne. Gestures just work. When you want more, every default is editable.
 
 ## Features (MVP)

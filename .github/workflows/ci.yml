@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Build & Test
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: swift --version
+
+      - name: Build (debug)
+        run: swift build
+
+      - name: Run tests
+        run: swift test
+
+  universal:
+    name: Universal Release Build (arm64 + x86_64)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: swift --version
+
+      - name: Build universal binaries (arm64 + x86_64)
+        run: swift build -c release --arch arm64 --arch x86_64
+
+      - name: Package Sanne.app (universal)
+        env:
+          # Ad-hoc signature on CI. Developer ID signing is release-only.
+          SANNE_SIGN_IDENTITY: "-"
+        run: ./scripts/package-app.sh --universal
+
+      - name: Verify fat binary and minimum OS
+        run: |
+          set -euo pipefail
+          lipo -info dist/Sanne.app/Contents/MacOS/Sanne
+          lipo -archs dist/Sanne.app/Contents/MacOS/Sanne | grep -qw arm64
+          lipo -archs dist/Sanne.app/Contents/MacOS/Sanne | grep -qw x86_64
+          /usr/libexec/PlistBuddy -c "Print :LSMinimumSystemVersion" dist/Sanne.app/Contents/Info.plist | grep -qx "12.0"
+          codesign --verify dist/Sanne.app
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Sanne-universal-app
+          path: dist/Sanne.app
+          if-no-files-found: error
