@@ -2,8 +2,9 @@
 # Build Sanne.app (if needed) and wrap it in a distributable DMG.
 #
 # Usage:
-#   ./scripts/package-dmg.sh           # release app + DMG
-#   ./scripts/package-dmg.sh --skip-app  # use existing dist/Sanne.app
+#   ./scripts/package-dmg.sh                # release app + DMG
+#   ./scripts/package-dmg.sh --skip-app     # use existing dist/Sanne.app
+#   ./scripts/package-dmg.sh --universal    # arm64 + x86_64 app + DMG
 #
 # Output:
 #   dist/Sanne-<version>.dmg
@@ -17,17 +18,22 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 SKIP_APP=0
-if [[ "${1:-}" == "--skip-app" ]]; then
-  SKIP_APP=1
-fi
+APP_ARGS=()
+for arg in "$@"; do
+  case "$arg" in
+    --skip-app) SKIP_APP=1 ;;
+    --universal) APP_ARGS+=(--universal) ;;
+    *) echo "usage: $0 [--skip-app] [--universal]" >&2; exit 2 ;;
+  esac
+done
 
-if [[ "$SKIP_APP" -eq 0 ]]; then
-  "$ROOT/scripts/package-app.sh"
-else
+if [[ "$SKIP_APP" -eq 1 ]]; then
   if [[ ! -d "$ROOT/dist/Sanne.app" ]]; then
     echo "error: dist/Sanne.app missing — run without --skip-app" >&2
     exit 1
   fi
+else
+  "$ROOT/scripts/package-app.sh" "${APP_ARGS[@]}"
 fi
 
 if [[ -f "$ROOT/dist/.version" ]]; then

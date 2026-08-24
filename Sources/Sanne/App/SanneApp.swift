@@ -27,21 +27,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in self?.menuBar.showTutorial() }
+            guard let self else { return }
+            Task { @MainActor in self.menuBar.showTutorial() }
         }
         NotificationCenter.default.addObserver(
             forName: .sanneShowCheatSheet,
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in self?.menuBar.showCheatSheet() }
+            guard let self else { return }
+            Task { @MainActor in self.menuBar.showCheatSheet() }
         }
         NotificationCenter.default.addObserver(
             forName: .sanneShowPreferences,
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in self?.menuBar.showPreferences() }
+            guard let self else { return }
+            Task { @MainActor in self.menuBar.showPreferences() }
         }
     }
 

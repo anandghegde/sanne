@@ -105,7 +105,7 @@ struct PreferencesView: View {
                     } icon: {
                         ZStack {
                             RoundedRectangle(cornerRadius: 5.5, style: .continuous)
-                                .fill(t.tint.gradient)
+                                .fill(t.tint)
                             Image(systemName: t.systemImage)
                                 .font(.system(size: 11, weight: .semibold))
                                 .foregroundStyle(.white)

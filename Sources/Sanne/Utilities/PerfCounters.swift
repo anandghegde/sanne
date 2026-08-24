@@ -1,10 +1,16 @@
 import Foundation
-import os
 
 /// Cheap in-process counters for the recognition hot path. Debug Log reads them; they are
 /// never written to the log file.
 enum PerfCounters {
-    private static let lock = OSAllocatedUnfairLock()
+    /// NSLock instead of OSAllocatedUnfairLock: the latter needs macOS 13+, Sanne targets 12.
+    private static let lock = NSLock()
+
+    private static func withLock<T>(_ body: () -> T) -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        return body()
+    }
 
     private static var mmCallbacks: UInt64 = 0
     private static var trackpadCallbacks: UInt64 = 0
@@ -15,17 +21,17 @@ enum PerfCounters {
     private static var logAppends: UInt64 = 0
     private static var configSaves: UInt64 = 0
 
-    static func incMMCallbacks() { lock.withLock { mmCallbacks &+= 1 } }
-    static func incTrackpadCallbacks() { lock.withLock { trackpadCallbacks &+= 1 } }
-    static func incMainHops() { lock.withLock { mainHops &+= 1 } }
-    static func incConfigCopies() { lock.withLock { configCopies &+= 1 } }
-    static func incBindingResolves() { lock.withLock { bindingResolves &+= 1 } }
-    static func incAXSetFrame() { lock.withLock { axSetFrame &+= 1 } }
-    static func incLogAppends() { lock.withLock { logAppends &+= 1 } }
-    static func incConfigSaves() { lock.withLock { configSaves &+= 1 } }
+    static func incMMCallbacks() { withLock { mmCallbacks &+= 1 } }
+    static func incTrackpadCallbacks() { withLock { trackpadCallbacks &+= 1 } }
+    static func incMainHops() { withLock { mainHops &+= 1 } }
+    static func incConfigCopies() { withLock { configCopies &+= 1 } }
+    static func incBindingResolves() { withLock { bindingResolves &+= 1 } }
+    static func incAXSetFrame() { withLock { axSetFrame &+= 1 } }
+    static func incLogAppends() { withLock { logAppends &+= 1 } }
+    static func incConfigSaves() { withLock { configSaves &+= 1 } }
 
     static func reset() {
-        lock.withLock {
+        withLock {
             mmCallbacks = 0
             trackpadCallbacks = 0
             mainHops = 0
@@ -38,7 +44,7 @@ enum PerfCounters {
     }
 
     static func snapshotLine() -> String {
-        lock.withLock {
+        withLock {
             "mm=\(mmCallbacks) tp=\(trackpadCallbacks) main=\(mainHops) copies=\(configCopies) resolve=\(bindingResolves) ax=\(axSetFrame) log=\(logAppends)"
         }
     }

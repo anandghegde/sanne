@@ -3,16 +3,22 @@ import ServiceManagement
 
 /// Login item registration via `SMAppService` (macOS 13+).
 /// Works reliably only for a real `.app` bundle (not raw `swift run` binaries).
+/// On macOS 12 the feature degrades gracefully (`.unsupported`) — the legacy
+/// helper-app approach is not worth the packaging complexity here.
 enum LaunchAtLogin {
     enum Status: String {
         case enabled
         case notRegistered
         case requiresApproval
         case notFound
+        case unsupported
         case unknown
     }
 
+    static var isSupported: Bool { status != .unsupported }
+
     static var status: Status {
+        guard #available(macOS 13.0, *) else { return .unsupported }
         switch SMAppService.mainApp.status {
         case .enabled: return .enabled
         case .notRegistered: return .notRegistered
@@ -32,6 +38,16 @@ enum LaunchAtLogin {
 
     @discardableResult
     static func setEnabled(_ enabled: Bool) -> Result<Void, Error> {
+        guard #available(macOS 13.0, *) else {
+            Log.warn(.app, "Launch at login needs macOS 13+ (SMAppService); running on \(ProcessInfo.processInfo.operatingSystemVersionString)")
+            return .failure(
+                NSError(
+                    domain: "app.sanne.LaunchAtLogin",
+                    code: 1,
+                    userInfo: [NSLocalizedDescriptionKey: "Launch at login requires macOS 13 or newer"]
+                )
+            )
+        }
         do {
             if enabled {
                 if SMAppService.mainApp.status == .enabled {
@@ -58,6 +74,12 @@ enum LaunchAtLogin {
         guard isBundledApp else {
             if desired {
                 Log.warn(.app, "Launch at login requested but process is not a .app bundle — package Sanne.app first")
+            }
+            return
+        }
+        guard isSupported else {
+            if desired {
+                Log.warn(.app, "Launch at login requested but this OS does not support SMAppService (needs macOS 13+)")
             }
             return
         }

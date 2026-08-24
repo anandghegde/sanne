@@ -107,7 +107,6 @@ struct HomePage: View {
                         Text("Help")
                     }
                 }
-                .formStyle(.grouped)
                 .frame(maxWidth: 680)
             }
             .padding(20)

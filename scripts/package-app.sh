@@ -2,7 +2,9 @@
 # Build a Sanne.app bundle for stable Accessibility / login-item identity.
 #
 # Usage:
-#   ./scripts/package-app.sh [--debug]
+#   ./scripts/package-app.sh [--debug] [--universal]
+#
+#   --universal   arm64 + x86_64 fat binary (goes through xcbuild; slower)
 #
 # Env:
 #   SANNE_VERSION       Override marketing version (default: VERSION file or 0.1.0)
@@ -18,9 +20,14 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 CONFIG="release"
-if [[ "${1:-}" == "--debug" ]]; then
-  CONFIG="debug"
-fi
+UNIVERSAL=0
+for arg in "$@"; do
+  case "$arg" in
+    --debug)     CONFIG="debug" ;;
+    --universal) UNIVERSAL=1 ;;
+    *) echo "usage: $0 [--debug] [--universal]" >&2; exit 2 ;;
+  esac
+done
 
 VERSION_FILE="$ROOT/VERSION"
 if [[ -n "${SANNE_VERSION:-}" ]]; then
@@ -61,10 +68,18 @@ if [[ "$SIGN_IDENTITY" == "-" ]]; then
 fi
 
 echo "→ version $VERSION (build $BUILD)"
-echo "→ swift build -c $CONFIG"
-swift build -c "$CONFIG"
+BUILD_ARGS=(-c "$CONFIG")
+if [[ "$UNIVERSAL" -eq 1 ]]; then
+  BUILD_ARGS+=(--arch arm64 --arch x86_64)
+fi
+echo "→ swift build ${BUILD_ARGS[*]}"
+swift build "${BUILD_ARGS[@]}"
 
-BIN="$ROOT/.build/$CONFIG/Sanne"
+# Universal builds go through xcbuild and land under .build/apple/Products.
+BIN="$ROOT/.build/apple/Products/$CONFIG/Sanne"
+if [[ ! -x "$BIN" ]]; then
+  BIN="$ROOT/.build/$CONFIG/Sanne"
+fi
 if [[ ! -x "$BIN" ]]; then
   # SPM may place binary under a triple directory on some toolchains.
   ALT="$(find "$ROOT/.build" -path "*/$CONFIG/Sanne" -type f -perm -111 2>/dev/null | head -1 || true)"
@@ -92,8 +107,10 @@ chmod +x "$MACOS/Sanne"
 # Prefer that over any stale Sanne_Sanne.bundle left from when the executable owned the resources.
 BUNDLE_SRC=""
 for candidate in \
+  "$ROOT/.build/apple/Products/$CONFIG/Sanne_SanneKit.bundle" \
   "$ROOT/.build/$CONFIG/Sanne_SanneKit.bundle" \
   "$ROOT/.build"/*/"$CONFIG/Sanne_SanneKit.bundle" \
+  "$ROOT/.build/apple/Products/$CONFIG/SanneKit_SanneKit.bundle" \
   "$ROOT/.build/$CONFIG/SanneKit_SanneKit.bundle" \
   "$ROOT/.build"/*/"$CONFIG/SanneKit_SanneKit.bundle"
 do
@@ -161,7 +178,7 @@ cat > "$CONTENTS/Info.plist" <<PLIST
 	<key>CFBundleVersion</key>
 	<string>${BUILD}</string>
 	<key>LSMinimumSystemVersion</key>
-	<string>13.0</string>
+	<string>12.0</string>
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSHighResolutionCapable</key>

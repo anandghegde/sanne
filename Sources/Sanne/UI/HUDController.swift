@@ -91,11 +91,12 @@ final class HUDController {
             panel.animator().alphaValue = 0
         }, completionHandler: { [weak self] in
             // AppKit types this handler as a non-isolated `@Sendable` closure but always runs it on
-            // the main thread, so state that rather than hopping: a `Task { @MainActor in }` would
-            // let a newer `show` land between the fade ending and the guard below, which is exactly
-            // the interleaving `generation` exists to rule out.
-            MainActor.assumeIsolated {
-                guard let self, token == self.generation, let panel = self.panel else { return }
+            // the main thread. `MainActor.assumeIsolated` needs Swift 5.9, so hop via the main
+            // actor instead: a newer `show` landing in between bumps `generation`, and the guard
+            // below drops this stale completion before it can touch the panel.
+            guard let self else { return }
+            Task { @MainActor in
+                guard token == self.generation, let panel = self.panel else { return }
                 panel.orderOut(nil)
                 // Restore *after* ordering out, so an off-screen panel is always ready to be shown
                 // opaque and no frame is ever presented at zero alpha.
