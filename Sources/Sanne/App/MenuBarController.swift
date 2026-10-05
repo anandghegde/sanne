@@ -583,6 +583,13 @@ final class MenuBarController: NSObject, NSMenuDelegate, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
+        if let closing = notification.object as? NSWindow, closing === prefsWindow {
+            // A retained, hidden hosting view can keep recalculating SwiftUI constraints.
+            // Tear down Settings on close; showPreferences recreates it with the saved frame.
+            closing.contentViewController = nil
+            closing.contentView = nil
+            prefsWindow = nil
+        }
         DispatchQueue.main.async { [weak self] in
             self?.restoreAccessoryIfIdle()
         }
